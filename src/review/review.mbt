@@ -125,11 +125,12 @@ pub fn ReviewAgent::review_perspective(
   task : @types.Task,
   backend : @agent.BoxedBackend,
   context : String,
+  on_event~ : (@types.AgentEvent) -> Unit = fn(_) {  },
 ) -> @types.ReviewResult {
   let task_output = task.result.unwrap_or("")
   let prompt = self.build_prompt(perspective, task.description, task_output, context)
   let system = "You are a code reviewer focusing on \{perspective}. Be concise and actionable."
-  let output = backend.run(prompt, system, fn(_) {  })
+  let output = backend.run(prompt, system, on_event)
   let verdict = self.parse_verdict(output.content)
   let result : @types.ReviewResult = {
     reviewer_id: self.reviewer_id,
@@ -146,6 +147,7 @@ pub fn ReviewAgent::review(
   task : @types.Task,
   backend : @agent.BoxedBackend,
   context~ : String = "",
+  on_event~ : (@types.AgentEvent) -> Unit = fn(_) {  },
 ) -> @types.ReviewResult {
   let all_items : Array[String] = []
   let summaries = StringBuilder::new()
@@ -153,7 +155,7 @@ pub fn ReviewAgent::review(
   let perspectives = self.perspectives()
   for perspective in perspectives {
     let result = self.review_perspective(
-      perspective, task, backend, context,
+      perspective, task, backend, context, on_event=on_event,
     )
     summaries.write_string("### \{perspective}\n")
     summaries.write_string(result.summary)
@@ -228,7 +230,7 @@ fn extract_tag_content(text : String, tag_name : String) -> String? {
       let close_idx = text.find(close_tag)
       match close_idx {
         Some(end) =>
-          if end > content_start {
+          if end >= content_start {
             Some(
               text.view(start_offset=content_start, end_offset=end).to_string(),
             )

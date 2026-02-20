@@ -502,6 +502,8 @@ fn run_dev(
         match event {
           @types.AgentEvent::OutputLine(line) =>
             println("  [\{id}] \{truncate(line, 140)}")
+          @types.AgentEvent::Info(msg) =>
+            log("INFO", "\{id}: \{msg}")
           @types.AgentEvent::ToolCall(name=tool_name, input=tool_input) =>
             log(
               "TOOL",
@@ -596,9 +598,37 @@ fn run_review(
       for perspective in perspectives {
         log("REVIEW", "Reviewing: \{perspective}...")
       }
+      let review_event_handler : (@types.AgentEvent) -> Unit = fn(event) {
+        match event {
+          @types.AgentEvent::Info(msg) =>
+            log("INFO", "\{reviewer_id}: \{msg}")
+          @types.AgentEvent::ToolCall(name=tool_name, input=tool_input) =>
+            log(
+              "TOOL",
+              "\{reviewer_id} -> \{tool_name}(\{truncate(tool_input, 100)})",
+            )
+          @types.AgentEvent::ToolResult(
+            name=tool_name,
+            output=tool_output,
+          ) =>
+            log(
+              "TOOL",
+              "\{reviewer_id} <- \{tool_name}: \{truncate(tool_output, 120)}",
+            )
+          @types.AgentEvent::StatusChange(status) =>
+            log("REVIEW", "\{reviewer_id} -> \{status}")
+          @types.AgentEvent::SessionId(sid) => {
+            agent_sessions[reviewer_id] = sid
+            log("REVIEW", "\{reviewer_id} session: \{sid}")
+          }
+          _ => ()
+        }
+      }
       let review_task = @types.Task::new("review-target", task)
       review_task.complete(dev_output)
-      let review = ra.review(review_task, backend, context=context)
+      let review = ra.review(
+        review_task, backend, context=context, on_event=review_event_handler,
+      )
       log("REVIEW", "\{reviewer_id} finished")
       match review.verdict {
         Approved => {
@@ -638,7 +668,10 @@ fn run_review(
             )
             rework_review_task.complete(current_output)
             let rework_review = ra.review(
-              rework_review_task, backend, context=fresh_context,
+              rework_review_task,
+              backend,
+              context=fresh_context,
+              on_event=review_event_handler,
             )
             match rework_review.verdict {
               Approved => {

@@ -126,6 +126,7 @@ pub fn OrchestratorCallbacks::noop() -> OrchestratorCallbacks {
 ///| Events emitted by an agent during execution
 pub(all) enum AgentEvent {
   OutputLine(String)
+  Info(String)
   ToolCall(name~ : String, input~ : String)
   ToolResult(name~ : String, output~ : String)
   SubAgentStart(agent_type~ : String, task~ : String)

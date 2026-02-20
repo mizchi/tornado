@@ -68,6 +68,13 @@ fn SubprocessBackend::run_claude_code(
     args.push(self.session_id)
   }
   let args_json = Json::array(args.map(fn(s) { s.to_json() }))
+  // Log the command being launched
+  let cmd_preview = if not(self.session_id.is_empty()) {
+    "claude -p <task> --output-format stream-json --verbose --resume \{self.session_id}"
+  } else {
+    "claude -p <task> --output-format stream-json --verbose"
+  }
+  on_output(@types.AgentEvent::Info("Launching: \{cmd_preview}"))
   let buf = StringBuilder::new()
   let mut has_error = false
   let error_buf = StringBuilder::new()
@@ -136,12 +143,16 @@ fn SubprocessBackend::parse_jsonl_events(
           }
         _ => ()
       }
-      // Extract tool calls, tool results, subagents
+      // Extract events by type
       match map.get("type") {
         Some(String(event_type)) =>
           match event_type {
+            "system" => self.parse_system_event(map, on_output)
             "assistant" => self.parse_tool_calls(map, on_output)
+            "content_block_start" =>
+              self.parse_content_block_start(map, on_output)
             "tool_result" => self.parse_tool_result(map, on_output)
+            "result" => self.parse_result_event(map, on_output)
             _ => ()
           }
         _ => ()
@@ -246,6 +257,113 @@ fn SubprocessBackend::parse_tool_result(
   }
 }
 
+///| Parse system init event (model, tools, session)
+fn SubprocessBackend::parse_system_event(
+  _self : SubprocessBackend,
+  map : Map[String, Json],
+  on_output : (@types.AgentEvent) -> Unit,
+) -> Unit {
+  let subtype = match map.get("subtype") {
+    Some(String(s)) => s
+    _ => ""
+  }
+  if subtype == "init" {
+    let model = match map.get("model") {
+      Some(String(m)) => m
+      _ => "unknown"
+    }
+    let tools_count = match map.get("tools") {
+      Some(Array(arr)) => arr.length()
+      _ => 0
+    }
+    on_output(
+      @types.AgentEvent::Info(
+        "Session initialized: model=\{model}, tools=\{tools_count}",
+      ),
+    )
+  }
+}
+
+///| Parse content_block_start (tool_use start, text start, thinking)
+fn SubprocessBackend::parse_content_block_start(
+  _self : SubprocessBackend,
+  map : Map[String, Json],
+  on_output : (@types.AgentEvent) -> Unit,
+) -> Unit {
+  let block = match map.get("content_block") {
+    Some(Object(b)) => b
+    _ => return
+  }
+  match block.get("type") {
+    Some(String(block_type)) =>
+      match block_type {
+        "tool_use" => {
+          let name = match block.get("name") {
+            Some(String(n)) => n
+            _ => "unknown"
+          }
+          on_output(@types.AgentEvent::Info("Using tool: \{name}"))
+        }
+        "thinking" =>
+          on_output(@types.AgentEvent::Info("Thinking..."))
+        "text" =>
+          on_output(@types.AgentEvent::Info("Generating response..."))
+        _ => ()
+      }
+    _ => ()
+  }
+}
+
+///| Parse result event (cost, duration, token usage)
+fn SubprocessBackend::parse_result_event(
+  _self : SubprocessBackend,
+  map : Map[String, Json],
+  on_output : (@types.AgentEvent) -> Unit,
+) -> Unit {
+  let subtype = match map.get("subtype") {
+    Some(String(s)) => s
+    _ => ""
+  }
+  let buf = StringBuilder::new()
+  buf.write_string("Result: \{subtype}")
+  match map.get("cost_usd") {
+    Some(Number(n, ..)) => buf.write_string(", cost=$\{n}")
+    _ => ()
+  }
+  match map.get("duration_ms") {
+    Some(Number(n, ..)) => {
+      let secs = n / 1000.0
+      buf.write_string(", duration=\{secs}s")
+    }
+    _ => ()
+  }
+  match map.get("duration_api_ms") {
+    Some(Number(n, ..)) => {
+      let secs = n / 1000.0
+      buf.write_string(", api=\{secs}s")
+    }
+    _ => ()
+  }
+  // Token usage
+  match map.get("usage") {
+    Some(Object(usage)) => {
+      let input_tokens = match usage.get("input_tokens") {
+        Some(Number(n, ..)) => n.to_int()
+        _ => 0
+      }
+      let output_tokens = match usage.get("output_tokens") {
+        Some(Number(n, ..)) => n.to_int()
+        _ => 0
+      }
+      if input_tokens > 0 || output_tokens > 0 {
+        buf.write_string(", tokens=\{input_tokens}in/\{output_tokens}out")
+      }
+    }
+    _ => ()
+  }
+  on_output(@types.AgentEvent::Info(buf.to_string()))
+}
+
 ///| Run via codex CLI (plain text output)
 fn SubprocessBackend::run_codex(
   self : SubprocessBackend,
@@ -266,6 +384,12 @@ fn SubprocessBackend::run_codex(
     args.push(self.model)
   }
   let args_json = Json::array(args.map(fn(s) { s.to_json() })).stringify()
+  let codex_cmd = if not(self.session_id.is_empty()) {
+    "codex resume --last"
+  } else {
+    "codex <task>"
+  }
+  on_output(@types.AgentEvent::Info("Launching: \{codex_cmd}"))
   let buf = StringBuilder::new()
   let mut has_error = false
   let error_buf = StringBuilder::new()
