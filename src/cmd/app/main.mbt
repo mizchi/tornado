@@ -199,6 +199,55 @@ fn clear_session() -> Unit {
   ignore(exec_sync("rm -f \{session_file}"))
 }
 
+// ── Initial task builder ─────────────────────────────────────
+
+///| Build initial task by reading TODO files in the project
+fn build_initial_task_from_todos() -> String {
+  let todo_files = [
+    "TODO.md",
+    "Agents-todo.md",
+    "AGENTS-TODO.md",
+    "agents-todo.md",
+    "TODO",
+    "todo.md",
+  ]
+  let buf = StringBuilder::new()
+  buf.write_string(
+    "You are starting an autonomous development session for this project.\n\n",
+  )
+  buf.write_string(
+    "First, read the following TODO/task files to understand what needs to be done:\n\n",
+  )
+  let mut found = false
+  for file in todo_files {
+    let content = read_file_sync(file)
+    if not(content.has_prefix("ERROR:")) && not(content.is_empty()) {
+      found = true
+      buf.write_string("## \{file}\n```\n")
+      buf.write_string(truncate(content, 3000))
+      buf.write_string("\n```\n\n")
+    }
+  }
+  if not(found) {
+    buf.write_string(
+      "(No TODO files found. Look at the project structure, README, and recent git history instead.)\n\n",
+    )
+  }
+  let context = gather_review_context()
+  if not(context.is_empty()) {
+    buf.write_string("## Current Project State\n")
+    buf.write_string(context)
+  }
+  buf.write_string("## Your Task\n")
+  buf.write_string(
+    "Based on the TODO files and project state above, pick the highest-priority incomplete task and implement it.\n",
+  )
+  buf.write_string(
+    "Make concrete code changes, run tests, and commit when done. Then move to the next task.\n",
+  )
+  buf.to_string()
+}
+
 // ── Continuation task builder ────────────────────────────────
 
 ///| Build a continuation task for the dev agent after review approval
@@ -296,9 +345,14 @@ fn run_repl(config_path : String?) -> Unit {
   if next_task.is_empty() {
     println("")
     next_task = prompt_sync("task> ")
-    if next_task.is_empty() || next_task == "quit" || next_task == "exit" {
+    if next_task == "quit" || next_task == "exit" {
       log("EXIT", "Bye.")
       return
+    }
+    if next_task.is_empty() {
+      // No task given → start from TODO files
+      next_task = build_initial_task_from_todos()
+      log("HEARTBEAT", "No task specified. Starting from project TODO files.")
     }
   }
   // ── Autonomous loop: runs until Ctrl+C ──
