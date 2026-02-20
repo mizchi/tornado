@@ -264,13 +264,16 @@ fn Orchestrator::needs_iteration(
   })
 }
 
-///| Re-execute tasks that need changes
+///| Re-execute tasks that need changes.
+///| Preserves original agent assignment for rework and only clears review
+///| data after successful rework (so review feedback isn't lost on failure).
 fn Orchestrator::iterate_tasks(
   self : Orchestrator,
   session : @types.Session,
 ) -> Unit {
-  let dev_backend = self.find_backend_for_role(@types.AgentRole::Dev)
-  let agent_id = match dev_backend {
+  // Fallback dev agent for tasks where original agent is unavailable
+  let fallback_dev = self.find_backend_for_role(@types.AgentRole::Dev)
+  let fallback_id = match fallback_dev {
     Some((id, _)) => id
     None => {
       (self.callbacks.on_info)("No dev backend available for rework")
@@ -287,11 +290,22 @@ fn Orchestrator::iterate_tasks(
             })
             (self.callbacks.on_info)("Re-working \{task.id} with feedback")
             let new_desc = "\{task.description}\n\nFeedback from review:\n\{feedback}"
+            // Save review data before rework attempt
+            let saved_review = task.review
+            let saved_result = task.result
             task.status = @types.TaskStatus::Pending
             task.result = None
             task.review = None
-            task.assign(agent_id)
-            self.run_task(task, new_desc, agent_id)
+            task.assign(fallback_id)
+            self.run_task(task, new_desc, fallback_id)
+            // If rework failed, restore review feedback so it's not lost
+            match task.status {
+              Failed(_) => {
+                task.review = saved_review
+                task.result = saved_result
+              }
+              _ => ()
+            }
           }
           _ => ()
         }

@@ -254,6 +254,66 @@ test "Orchestrator iteration respects max_review_cycles" {
   assert_true(review_count <= 3)
 }
 
+test "Orchestrator rework preserves review data across cycles" {
+  let dev_agent : @types.AgentConfig = {
+    id: "dev-1",
+    kind: Mock,
+    role: Dev,
+    model: None,
+    system_prompt: None,
+    working_dir: ".",
+    max_iterations: 10,
+  }
+  let review_agent : @types.AgentConfig = {
+    id: "review-1",
+    kind: Mock,
+    role: Review,
+    model: None,
+    system_prompt: None,
+    working_dir: ".",
+    max_iterations: 10,
+  }
+  let config : @config.ProjectConfig = {
+    project_dir: ".",
+    review_dir: "docs/reviews",
+    max_review_cycles: 2,
+    agents: [dev_agent, review_agent],
+    parse_warnings: [],
+  }
+  let dev_mock = @agent.MockBackend::new(default_response="initial work")
+  // Review always says needs_changes — never approves
+  let review_mock = @agent.MockBackend::new(
+    default_response="<needs_changes>fix error handling</needs_changes>",
+  )
+  let backends : Map[String, @agent.BoxedBackend] = {}
+  backends["dev-1"] = dev_mock.boxed()
+  backends["review-1"] = review_mock.boxed()
+  let info_msgs : Array[String] = []
+  let cb = @types.OrchestratorCallbacks::noop()
+  let callbacks = {
+    ..cb,
+    on_info: fn(msg) { info_msgs.push(msg) },
+  }
+  let orch = @orchestrator.Orchestrator::new(config, backends, callbacks)
+  let session = @types.Session::new("s1", "Build feature", config.agents)
+  dev_mock.add_response("Break down", "1. Build the feature")
+  orch.run(session)
+  // Session completes after hitting max_review_cycles
+  inspect(session.status, content="Completed")
+  // Verify iteration actually happened (Re-working messages present)
+  assert_true(
+    info_msgs.iter().any(fn(msg) { msg.contains("Re-working") }),
+  )
+  // Verify review cycle count messages
+  assert_true(
+    info_msgs.iter().any(fn(msg) { msg.contains("Review cycle") }),
+  )
+  // After max_review_cycles, tasks should still retain their last review
+  for task in session.tasks {
+    assert_true(task.review is Some(_))
+  }
+}
+
 test "Orchestrator progress reports accurate completed count" {
   let config = make_test_config()
   let dev_mock = @agent.MockBackend::new(

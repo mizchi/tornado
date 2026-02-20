@@ -184,15 +184,18 @@ test "ReviewAgent::parse_verdict handles malformed close tag" {
   inspect(verdict, content="Approved")
 }
 
-test "ReviewAgent::parse_verdict handles empty needs_changes" {
+test "ReviewAgent::parse_verdict treats empty needs_changes as approved" {
   let ra = @review.ReviewAgent::new("r1")
   let verdict = ra.parse_verdict("<needs_changes></needs_changes>")
-  // Empty content splits to empty items, all trimmed away
-  match verdict {
-    @types.ReviewVerdict::NeedsChanges(items) =>
-      assert_true(items.is_empty())
-    _ => fail("Expected NeedsChanges")
-  }
+  // Empty tag should fall through to Approved, not trigger spurious rework
+  inspect(verdict, content="Approved")
+}
+
+test "ReviewAgent::parse_verdict treats whitespace-only needs_changes as approved" {
+  let ra = @review.ReviewAgent::new("r1")
+  let verdict = ra.parse_verdict("<needs_changes>   ,  , </needs_changes>")
+  // All items are whitespace/empty after trim — should be Approved
+  inspect(verdict, content="Approved")
 }
 
 test "extract_tag_content with close before open" {

@@ -96,7 +96,8 @@ pub fn TuiState::prev_tab(self : TuiState) -> Unit {
   }
 }
 
-///| Create OrchestratorCallbacks that update TuiState
+///| Create OrchestratorCallbacks that update TuiState.
+///| All callbacks are wired to produce visible log output — no silent no-ops.
 pub fn TuiState::make_callbacks(
   self : TuiState,
 ) -> @types.OrchestratorCallbacks {
@@ -105,10 +106,18 @@ pub fn TuiState::make_callbacks(
     on_agent_complete: fn(agent_id, _result) {
       self.append_log(agent_id, "[completed]")
     },
-    on_task_start: fn(_task_id, _desc, _agent_id) {  },
-    on_task_complete: fn(_task_id, _status) {  },
-    on_task_assign: fn(_task_id, _agent_id) {  },
-    on_review_start: fn(_task_id, _reviewer_id) {  },
+    on_task_start: fn(task_id, desc, agent_id) {
+      self.append_log(agent_id, "[\{task_id}] Starting: \{desc}")
+    },
+    on_task_complete: fn(task_id, status) {
+      self.phase_log.push("Task \{task_id}: \{status}")
+    },
+    on_task_assign: fn(task_id, agent_id) {
+      self.append_log(agent_id, "[\{task_id}] Assigned")
+    },
+    on_review_start: fn(task_id, reviewer_id) {
+      self.append_log(reviewer_id, "[\{task_id}] Review starting")
+    },
     on_review_complete: fn(task_id, verdict) {
       self.phase_log.push("Review \{task_id}: \{verdict}")
     },
@@ -118,6 +127,6 @@ pub fn TuiState::make_callbacks(
     on_session_complete: fn(_session_id) {
       self.phase_log.push("[session complete]")
     },
-    on_info: fn(_msg) {  },
+    on_info: fn(msg) { self.phase_log.push(msg) },
   }
 }

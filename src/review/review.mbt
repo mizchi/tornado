@@ -106,7 +106,11 @@ pub fn ReviewAgent::parse_verdict(
           items.push(trimmed)
         }
       }
-      return @types.ReviewVerdict::NeedsChanges(items)
+      // Only return NeedsChanges if there are actual feedback items;
+      // empty <needs_changes></needs_changes> falls through to Approved
+      if not(items.is_empty()) {
+        return @types.ReviewVerdict::NeedsChanges(items)
+      }
     }
     None => ()
   }
