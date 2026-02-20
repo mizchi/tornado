@@ -2,6 +2,25 @@
 
 let session_file : String = ".tornado/session.json"
 
+///| Detect language from LANG environment variable
+fn detect_lang() -> String {
+  let env_lang = get_env("LANG")
+  if env_lang.contains("ja") {
+    "ja"
+  } else {
+    "en"
+  }
+}
+
+///| Resolve --lang flag: None/"auto" → detect, otherwise use as-is
+fn resolve_lang(cli_lang : String?) -> String {
+  match cli_lang {
+    None => detect_lang()
+    Some("auto") => detect_lang()
+    Some(lang) => lang
+  }
+}
+
 fn main {
   let args = @sys.get_cli_args()
   let command = @cli.parse_cli_args(args, is_existing_file)
@@ -13,11 +32,13 @@ fn main {
       review_kind=review_kind,
       review_interval=review_interval,
       rlm=rlm,
+      lang=cli_lang,
       warnings=warnings,
     ) => {
       for w in warnings {
         log("WARN", w)
       }
+      let lang = resolve_lang(cli_lang)
       let initial_task = load_plan_task(plan_path)
       run_repl(
         config_path,
@@ -27,6 +48,7 @@ fn main {
         dev_kind,
         review_kind,
         review_interval,
+        lang,
       )
     }
     @cli.CliCommand::Validate(path) =>
@@ -62,6 +84,7 @@ fn print_usage() -> Unit {
   println("Options:")
   println("  --review-interval=N  Run N dev iterations per review (default: 1)")
   println("  --rlm                Enable improvement loop mode (measure→improve→verify→commit/revert)")
+  println("  --lang=auto|ja|en    Review language (default: auto, detected from LANG env)")
   println("")
   println("Autonomous heartbeat: dev runs → reviewer reviews →")
   println("dev continues with next task → forever until Ctrl+C.")
@@ -573,6 +596,7 @@ fn run_repl(
   dev_kind : @types.AgentKind?,
   review_kind : @types.AgentKind?,
   review_interval : Int?,
+  lang : String,
 ) -> Unit {
   let loaded_config = load_config(config_path)
   let config = @cli.apply_overrides(
@@ -601,6 +625,7 @@ fn run_repl(
   if rlm {
     log("BOOT", "RLM improvement loop mode: enabled")
   }
+  log("BOOT", "Review language: \{lang}")
   println("")
   let backends = @agent.create_backends(config.agents)
   let dev_id = find_agent_id(config.agents, @types.AgentRole::Dev)
@@ -840,6 +865,7 @@ fn run_repl(
           combined_dev_output,
           config.max_review_cycles,
           agent_sessions,
+          lang,
           on_usage~,
         )
       None => {
@@ -1153,11 +1179,12 @@ fn run_review(
   dev_output : String,
   max_cycles : Int,
   agent_sessions : Map[String, String],
+  lang : String,
   on_usage~ : (Int, Int, Int, Int, Double) -> Unit = fn(_, _, _, _, _) {  },
 ) -> ReviewOutcome {
   match backends.get(reviewer_id) {
     Some(backend) => {
-      let ra = @review.ReviewAgent::new(reviewer_id)
+      let ra = @review.ReviewAgent::new(reviewer_id, lang)
       log("REVIEW", "Gathering git context...")
       let context = gather_review_context()
       let perspectives = ra.perspectives()

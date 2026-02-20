@@ -117,6 +117,15 @@ extern "js" fn js_sleep_ms(ms : Int) -> Unit =
   #|  Atomics.wait(new Int32Array(sab), 0, 0, ms);
   #|}
 
+///| Get environment variable value (empty string if not set)
+pub fn get_env(name : String) -> String {
+  js_get_env(name)
+}
+
+///|
+extern "js" fn js_get_env(name : String) -> String =
+  #|(name) => { return process.env[name] || ""; }
+
 ///| Print string to stdout without trailing newline (for streaming output)
 pub fn print_inline(s : String) -> Unit {
   js_print_inline(s)

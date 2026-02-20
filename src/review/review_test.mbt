@@ -1,11 +1,11 @@
 test "ReviewAgent::parse_verdict approved" {
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   let verdict = ra.parse_verdict("The code looks great! <approved>")
   inspect(verdict, content="Approved")
 }
 
 test "ReviewAgent::parse_verdict needs_changes" {
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   let verdict = ra.parse_verdict(
     "<needs_changes>fix typo, add tests</needs_changes>",
   )
@@ -20,19 +20,19 @@ test "ReviewAgent::parse_verdict needs_changes" {
 }
 
 test "ReviewAgent::parse_verdict rejected" {
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   let verdict = ra.parse_verdict("<rejected>security vulnerability</rejected>")
   inspect(verdict, content="Rejected(\"security vulnerability\")")
 }
 
 test "ReviewAgent::parse_verdict defaults to approved" {
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   let verdict = ra.parse_verdict("no tags here")
   inspect(verdict, content="Approved")
 }
 
 test "ReviewAgent::build_prompt includes perspective-specific content" {
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   let prompt = ra.build_prompt(
     @review.ReviewPerspective::CodeQuality,
     "build API",
@@ -46,7 +46,7 @@ test "ReviewAgent::build_prompt includes perspective-specific content" {
 }
 
 test "ReviewAgent::build_prompt performance perspective" {
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   let prompt = ra.build_prompt(
     @review.ReviewPerspective::Performance,
     "optimize query",
@@ -58,7 +58,7 @@ test "ReviewAgent::build_prompt performance perspective" {
 }
 
 test "ReviewAgent::build_prompt security perspective" {
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   let prompt = ra.build_prompt(
     @review.ReviewPerspective::Security,
     "add auth",
@@ -70,7 +70,7 @@ test "ReviewAgent::build_prompt security perspective" {
 }
 
 test "ReviewAgent::build_prompt includes context when provided" {
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   let prompt = ra.build_prompt(
     @review.ReviewPerspective::CodeQuality,
     "task",
@@ -86,7 +86,7 @@ test "ReviewAgent::review merges 3 perspectives - all approved" {
     default_response="<approved> looks good",
   )
   let backend = mock.boxed()
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   let task = @types.Task::new("t1", "implement feature")
   task.complete("feature implemented")
   let result = ra.review(task, backend)
@@ -100,7 +100,7 @@ test "ReviewAgent::review merges needs_changes with perspective tags" {
     default_response="<needs_changes>fix this</needs_changes>",
   )
   let backend = mock.boxed()
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   let task = @types.Task::new("t1", "implement feature")
   task.complete("done")
   let result = ra.review(task, backend)
@@ -121,7 +121,7 @@ test "ReviewAgent::review stops on rejected" {
     default_response="<rejected>critical flaw</rejected>",
   )
   let backend = mock.boxed()
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   let task = @types.Task::new("t1", "feature")
   task.complete("done")
   let result = ra.review(task, backend)
@@ -133,12 +133,12 @@ test "ReviewAgent::review stops on rejected" {
 }
 
 test "ReviewAgent::perspectives returns 3" {
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   assert_true(ra.perspectives().length() == 3)
 }
 
 test "ReviewAgent::format_review approved" {
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   let task = @types.Task::new("t1", "build API")
   let review : @types.ReviewResult = {
     reviewer_id: "r1",
@@ -153,7 +153,7 @@ test "ReviewAgent::format_review approved" {
 }
 
 test "ReviewAgent::format_review needs_changes" {
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   let task = @types.Task::new("t1", "build API")
   let review : @types.ReviewResult = {
     reviewer_id: "r1",
@@ -168,7 +168,7 @@ test "ReviewAgent::format_review needs_changes" {
 }
 
 test "ReviewAgent::parse_verdict prefers approved over needs_changes" {
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   // <approved> appears before <needs_changes>, so approved wins
   let verdict = ra.parse_verdict(
     "<approved> but also <needs_changes>fix</needs_changes>",
@@ -177,7 +177,7 @@ test "ReviewAgent::parse_verdict prefers approved over needs_changes" {
 }
 
 test "ReviewAgent::parse_verdict handles malformed close tag" {
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   // Open tag without matching close tag
   let verdict = ra.parse_verdict("<needs_changes>fix this")
   // Falls through to default Approved since no close tag
@@ -185,21 +185,21 @@ test "ReviewAgent::parse_verdict handles malformed close tag" {
 }
 
 test "ReviewAgent::parse_verdict treats empty needs_changes as approved" {
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   let verdict = ra.parse_verdict("<needs_changes></needs_changes>")
   // Empty tag should fall through to Approved, not trigger spurious rework
   inspect(verdict, content="Approved")
 }
 
 test "ReviewAgent::parse_verdict treats whitespace-only needs_changes as approved" {
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   let verdict = ra.parse_verdict("<needs_changes>   ,  , </needs_changes>")
   // All items are whitespace/empty after trim — should be Approved
   inspect(verdict, content="Approved")
 }
 
 test "extract_tag_content with close before open" {
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   // close tag appears but no proper open/close pair
   let verdict = ra.parse_verdict(
     "</needs_changes>content<needs_changes>",
@@ -209,7 +209,7 @@ test "extract_tag_content with close before open" {
 }
 
 test "extract_tag_content finds close tag after open, not before" {
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   // Close tag first, then a real open/close pair — should extract from the real pair
   let verdict = ra.parse_verdict(
     "preamble </needs_changes>noise <needs_changes>fix naming</needs_changes>",
@@ -224,7 +224,7 @@ test "extract_tag_content finds close tag after open, not before" {
 }
 
 test "extract_tag_content with rejected tag nested in text" {
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   let verdict = ra.parse_verdict(
     "Some analysis... </rejected>stale<rejected>real issue</rejected> more text",
   )
@@ -236,7 +236,7 @@ test "extract_tag_content with rejected tag nested in text" {
 }
 
 test "parse_verdict with surrounding noise extracts correctly" {
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   let input = "I reviewed the code carefully.\n\n<needs_changes>add error handling, improve naming</needs_changes>\n\nOverall the code needs work."
   let verdict = ra.parse_verdict(input)
   match verdict {
@@ -255,7 +255,7 @@ test "review_perspective propagates backend failure instead of silent approval" 
   // defaulted to Approved — silently approving without any actual review.
   let failing = @agent.FailingMockBackend::new(error_msg="API rate limit exceeded")
   let backend = failing.boxed()
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   let task = @types.Task::new("t1", "implement auth")
   task.complete("some code")
   let result = ra.review_perspective(
@@ -278,7 +278,7 @@ test "review merges correctly when one perspective backend fails" {
   // should reflect the failure rather than silently approving.
   let failing = @agent.FailingMockBackend::new(error_msg="connection timeout")
   let backend = failing.boxed()
-  let ra = @review.ReviewAgent::new("r1")
+  let ra = @review.ReviewAgent::new("r1", "en")
   let task = @types.Task::new("t1", "implement feature")
   task.complete("done")
   let result = ra.review(task, backend)
@@ -289,4 +289,56 @@ test "review merges correctly when one perspective backend fails" {
     }
     other => fail("Expected Rejected on backend failure, got \{other}")
   }
+}
+
+test "ReviewAgent::build_prompt ja includes Japanese text" {
+  let ra = @review.ReviewAgent::new("r1", "ja")
+  let prompt = ra.build_prompt(
+    @review.ReviewPerspective::CodeQuality,
+    "API を構築",
+    "完了",
+    "",
+  )
+  assert_true(prompt.contains("以下の開発作業をレビューしてください"))
+  assert_true(prompt.contains("レビュー観点: コード品質"))
+  assert_true(prompt.contains("TODO リストとして書き出すことです"))
+  assert_true(not(prompt.contains("Review the following")))
+}
+
+test "ReviewAgent::build_prompt en includes English text" {
+  let ra = @review.ReviewAgent::new("r1", "en")
+  let prompt = ra.build_prompt(
+    @review.ReviewPerspective::Performance,
+    "optimize",
+    "done",
+    "",
+  )
+  assert_true(prompt.contains("Review the following development work"))
+  assert_true(prompt.contains("Review Focus: Performance"))
+  assert_true(prompt.contains("do NOT attempt to fix"))
+  assert_true(not(prompt.contains("以下の開発作業")))
+}
+
+test "ReviewAgent::build_prompt ja performance perspective" {
+  let ra = @review.ReviewAgent::new("r1", "ja")
+  let prompt = ra.build_prompt(
+    @review.ReviewPerspective::Performance,
+    "最適化",
+    "完了",
+    "",
+  )
+  assert_true(prompt.contains("レビュー観点: パフォーマンス"))
+  assert_true(prompt.contains("アルゴリズムの計算量"))
+}
+
+test "ReviewAgent::build_prompt ja security perspective" {
+  let ra = @review.ReviewAgent::new("r1", "ja")
+  let prompt = ra.build_prompt(
+    @review.ReviewPerspective::Security,
+    "認証追加",
+    "完了",
+    "",
+  )
+  assert_true(prompt.contains("レビュー観点: セキュリティ"))
+  assert_true(prompt.contains("インジェクション脆弱性"))
 }

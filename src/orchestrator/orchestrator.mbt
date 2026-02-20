@@ -13,12 +13,13 @@ pub fn Orchestrator::new(
   config : @config.ProjectConfig,
   backends : Map[String, @agent.BoxedBackend],
   callbacks : @types.OrchestratorCallbacks,
+  lang~ : String = "en",
 ) -> Orchestrator {
   let review_agent : @types.AgentConfig? = config.agents
     .iter()
     .find_first(fn(a) { a.role == Review })
   let ra : @review.ReviewAgent? = match review_agent {
-    Some(a) => Some(@review.ReviewAgent::new(a.id))
+    Some(a) => Some(@review.ReviewAgent::new(a.id, lang))
     None => None
   }
   {

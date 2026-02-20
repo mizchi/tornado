@@ -117,18 +117,18 @@ pub fn format_tool_result(name : String, output : String) -> String {
       let line_count = count_lines(output)
       "Read: \{line_count} lines"
     }
-    "Edit" => "Edit: \{truncate(output, 80)}"
-    "Write" => "Write: \{truncate(output, 80)}"
     "Bash" => {
       let line_count = count_lines(output)
       if line_count > 3 {
         "Bash: \{line_count} lines"
       } else {
-        "Bash: \{truncate(output, 120)}"
+        "Bash: \{output}"
       }
     }
-    "Glob" => "Glob: \{truncate(output, 120)}"
-    "Grep" => "Grep: \{truncate(output, 120)}"
-    _ => "\{name}: \{truncate(output, 120)}"
+    "Edit" => "Edit: \{output}"
+    "Write" => "Write: \{output}"
+    "Glob" => "Glob: \{output}"
+    "Grep" => "Grep: \{output}"
+    _ => "\{name}: \{output}"
   }
 }

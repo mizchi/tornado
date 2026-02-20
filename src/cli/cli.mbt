@@ -6,6 +6,7 @@ pub(all) enum CliCommand {
     review_kind~ : @types.AgentKind?,
     review_interval~ : Int?,
     rlm~ : Bool,
+    lang~ : String?,
     warnings~ : Array[String],
   )
   Validate(String?)
@@ -26,6 +27,7 @@ pub fn parse_cli_args(
       review_kind=None,
       review_interval=None,
       rlm=false,
+      lang=None,
       warnings=[],
     )
   }
@@ -121,6 +123,7 @@ fn parse_run_args(
   let mut review_kind : @types.AgentKind? = None
   let mut review_interval : Int? = None
   let mut rlm : Bool = false
+  let mut lang : String? = None
   let warnings : Array[String] = []
 
   let mut i = 0
@@ -161,6 +164,16 @@ fn parse_run_args(
 
     if token == "--rlm" {
       rlm = true
+      i += 1
+      continue
+    }
+
+    if token.has_prefix("--lang=") {
+      let raw = token.view(start_offset="--lang=".length()).to_string()
+      match raw {
+        "auto" | "ja" | "en" => lang = Some(raw)
+        _ => warnings.push("Unknown --lang value: \{raw} (expected auto|ja|en)")
+      }
       i += 1
       continue
     }
@@ -214,7 +227,7 @@ fn parse_run_args(
     i += 1
   }
 
-  Run(config_path~, plan_path~, dev_kind~, review_kind~, review_interval~, rlm~, warnings~)
+  Run(config_path~, plan_path~, dev_kind~, review_kind~, review_interval~, rlm~, lang~, warnings~)
 }
 
 fn parse_kind_alias(raw : String) -> @types.AgentKind? {
