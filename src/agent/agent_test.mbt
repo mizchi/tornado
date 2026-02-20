@@ -168,6 +168,28 @@ fn json_map(s : String) -> Map[String, Json] {
   }
 }
 
+// ── OutputLineBuffer ──
+
+test "OutputLineBuffer emits complete lines only" {
+  let lb = @agent.OutputLineBuffer::new()
+  let lines : Array[String] = []
+  lb.push("TO", fn(line) { lines.push(line) })
+  assert_true(lines.is_empty())
+  lb.push("DOロード\n次", fn(line) { lines.push(line) })
+  assert_true(lines.length() == 1)
+  inspect(lines[0], content="TODOロード")
+}
+
+test "OutputLineBuffer flush emits trailing partial line" {
+  let lb = @agent.OutputLineBuffer::new()
+  let lines : Array[String] = []
+  lb.push("途中まで", fn(line) { lines.push(line) })
+  assert_true(lines.is_empty())
+  lb.flush(fn(line) { lines.push(line) })
+  assert_true(lines.length() == 1)
+  inspect(lines[0], content="途中まで")
+}
+
 // ── parse_tool_calls ──
 
 test "parse_tool_calls extracts tool_use blocks" {

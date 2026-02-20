@@ -1030,47 +1030,18 @@ fn run_dev(
         None => log("DEV", "Starting \{id} (new session)...")
       }
       println("")
-      let line_active = [false]
       let result = backend.run(task, "", fn(event) {
         match event {
           @types.AgentEvent::OutputLine(text) => {
-            let buf = StringBuilder::new()
-            for ch in text {
-              if not(line_active[0]) {
-                buf.write_string("  [\{id}] ")
-                line_active[0] = true
-              }
-              if ch == '\n' {
-                buf.write_char('\n')
-                line_active[0] = false
-              } else {
-                buf.write_char(ch)
-              }
-            }
-            let s = buf.to_string()
-            if not(s.is_empty()) {
-              print_inline(s)
+            if not(text.is_empty()) {
+              println("  [\{id}] \{text}")
             }
           }
-          @types.AgentEvent::Info(msg) => {
-            if line_active[0] {
-              print_inline("\n")
-              line_active[0] = false
-            }
-            log("INFO", "\{id}: \{msg}")
-          }
+          @types.AgentEvent::Info(msg) => log("INFO", "\{id}: \{msg}")
           @types.AgentEvent::ToolCall(name=tool_name, input=tool_input) => {
-            if line_active[0] {
-              print_inline("\n")
-              line_active[0] = false
-            }
             log("CALL", "\{id} \{format_tool_call(tool_name, tool_input)}")
           }
           @types.AgentEvent::ToolResult(name=tool_name, output=tool_output) => {
-            if line_active[0] {
-              print_inline("\n")
-              line_active[0] = false
-            }
             log(
               "DONE",
               "\{id} \{format_tool_result(tool_name, tool_output)}",
@@ -1080,34 +1051,18 @@ fn run_dev(
             agent_type=agent_type,
             task=desc,
           ) => {
-            if line_active[0] {
-              print_inline("\n")
-              line_active[0] = false
-            }
             log(
               "AGENT",
               "\{id} spawned \{agent_type}: \{truncate(desc, 80)}",
             )
           }
           @types.AgentEvent::SubAgentEnd(agent_type=agent_type) => {
-            if line_active[0] {
-              print_inline("\n")
-              line_active[0] = false
-            }
             log("AGENT", "\{id} \{agent_type} completed")
           }
           @types.AgentEvent::StatusChange(status) => {
-            if line_active[0] {
-              print_inline("\n")
-              line_active[0] = false
-            }
             log("DEV", "\{id} -> \{status}")
           }
           @types.AgentEvent::SessionId(sid) => {
-            if line_active[0] {
-              print_inline("\n")
-              line_active[0] = false
-            }
             agent_sessions[id] = sid
             log("DEV", "\{id} session: \{sid}")
           }
@@ -1120,9 +1075,6 @@ fn run_dev(
           ) => on_usage(it, ot, cr, cw, cost)
         }
       })
-      if line_active[0] {
-        print_inline("\n")
-      }
       println("")
       match result.status {
         Completed => {

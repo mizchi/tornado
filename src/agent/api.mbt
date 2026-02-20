@@ -39,6 +39,7 @@ impl AgentBackend for ApiBackend with run(self, task, system_prompt, on_output) 
     { role: User, content: [@llm.ContentBlock::Text(task)] },
   )
   let buf = StringBuilder::new()
+  let line_buf = OutputLineBuffer::new()
   let mut has_error = false
   let error_buf = StringBuilder::new()
   let handler : @llm.StreamHandler = {
@@ -46,7 +47,9 @@ impl AgentBackend for ApiBackend with run(self, task, system_prompt, on_output) 
       match event {
         TextDelta(s) => {
           buf.write_string(s)
-          on_output(@types.AgentEvent::OutputLine(s))
+          line_buf.push(s, fn(line) {
+            on_output(@types.AgentEvent::OutputLine(line))
+          })
         }
         Error(msg) => {
           has_error = true
@@ -60,6 +63,7 @@ impl AgentBackend for ApiBackend with run(self, task, system_prompt, on_output) 
     },
   }
   self.provider.stream(messages, [], handler)
+  line_buf.flush(fn(line) { on_output(@types.AgentEvent::OutputLine(line)) })
   let content = buf.to_string()
   if has_error {
     let err = error_buf.to_string()

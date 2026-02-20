@@ -84,6 +84,7 @@ fn SubprocessBackend::run_claude_code(
   }
   // Parse JSONL output (single-pass: parse_sdk_event returns error status)
   let buf = StringBuilder::new()
+  let line_buf = OutputLineBuffer::new()
   let mut has_error = false
   let error_buf = StringBuilder::new()
   let lines = raw_output.split("\n")
@@ -92,10 +93,11 @@ fn SubprocessBackend::run_claude_code(
     if line.is_empty() {
       continue
     }
-    if self.parse_sdk_event(line, buf, error_buf, on_output) {
+    if self.parse_sdk_event(line, buf, line_buf, error_buf, on_output) {
       has_error = true
     }
   }
+  line_buf.flush(fn(line) { on_output(@types.AgentEvent::OutputLine(line)) })
   let content = buf.to_string()
   if has_error {
     let err = error_buf.to_string()
@@ -115,6 +117,7 @@ fn SubprocessBackend::parse_sdk_event(
   self : SubprocessBackend,
   line : String,
   buf : StringBuilder,
+  line_buf : OutputLineBuffer,
   error_buf : StringBuilder,
   on_output : (@types.AgentEvent) -> Unit,
 ) -> Bool {
@@ -139,7 +142,7 @@ fn SubprocessBackend::parse_sdk_event(
               // SDK wraps Anthropic streaming events in stream_event
               match map.get("event") {
                 Some(Object(event)) =>
-                  self.parse_stream_event(event, buf, on_output)
+                  self.parse_stream_event(event, buf, line_buf, on_output)
                 _ => ()
               }
             }
@@ -177,6 +180,7 @@ fn SubprocessBackend::parse_stream_event(
   _self : SubprocessBackend,
   event : Map[String, Json],
   buf : StringBuilder,
+  line_buf : OutputLineBuffer,
   on_output : (@types.AgentEvent) -> Unit,
 ) -> Unit {
   match event.get("type") {
@@ -191,7 +195,9 @@ fn SubprocessBackend::parse_stream_event(
                   match delta.get("text") {
                     Some(String(text)) => {
                       buf.write_string(text)
-                      on_output(@types.AgentEvent::OutputLine(text))
+                      line_buf.push(text, fn(line) {
+                        on_output(@types.AgentEvent::OutputLine(line))
+                      })
                     }
                     _ => ()
                   }
@@ -339,6 +345,7 @@ fn SubprocessBackend::run_codex(
   }
   // Parse JSONL output (reuse the same parse_sdk_event format)
   let buf = StringBuilder::new()
+  let line_buf = OutputLineBuffer::new()
   let mut has_error = false
   let error_buf = StringBuilder::new()
   let lines = raw_output.split("\n")
@@ -347,10 +354,11 @@ fn SubprocessBackend::run_codex(
     if line.is_empty() {
       continue
     }
-    if self.parse_sdk_event(line, buf, error_buf, on_output) {
+    if self.parse_sdk_event(line, buf, line_buf, error_buf, on_output) {
       has_error = true
     }
   }
+  line_buf.flush(fn(line) { on_output(@types.AgentEvent::OutputLine(line)) })
   let content = buf.to_string()
   if has_error {
     let err = error_buf.to_string()
