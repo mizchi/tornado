@@ -209,7 +209,7 @@ fn SubprocessBackend::parse_stream_event(
 }
 
 ///| Parse SDK result event (uses total_cost_usd instead of cost_usd)
-fn parse_sdk_result_event(
+pub fn parse_sdk_result_event(
   map : Map[String, Json],
   on_output : (@types.AgentEvent) -> Unit,
 ) -> Unit {
