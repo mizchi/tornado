@@ -14,7 +14,7 @@ extern "js" fn js_read_file_sync(path : String) -> String =
   #|  }
   #|}
 
-///| Show prompt and read a line from stdin synchronously
+///| Show prompt and read a line from stdin synchronously (via readline subprocess)
 pub fn prompt_sync(message : String) -> String {
   js_prompt_sync(message)
 }
@@ -22,12 +22,15 @@ pub fn prompt_sync(message : String) -> String {
 ///|
 extern "js" fn js_prompt_sync(message : String) -> String =
   #|(message) => {
-  #|  const fs = require('fs');
-  #|  process.stdout.write(message);
-  #|  const buf = Buffer.alloc(4096);
+  #|  const { execFileSync } = require('child_process');
   #|  try {
-  #|    const n = fs.readSync(0, buf, 0, buf.length);
-  #|    return buf.toString('utf-8', 0, n).trim();
+  #|    const code = 'const rl=require("readline").createInterface({input:process.stdin,output:process.stderr,terminal:true});'
+  #|      + 'rl.question(' + JSON.stringify(message) + ',a=>{process.stdout.write(a);rl.close()});';
+  #|    return execFileSync(process.execPath, ['-e', code], {
+  #|      encoding: 'utf-8',
+  #|      stdio: ['inherit', 'pipe', 'inherit'],
+  #|      timeout: 600000
+  #|    }).trim();
   #|  } catch (e) {
   #|    return '';
   #|  }
