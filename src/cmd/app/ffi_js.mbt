@@ -76,7 +76,7 @@ extern "js" fn js_start_stdin_watcher() -> Unit =
   #|  const path = require('path');
   #|  const { mkdirSync } = require('fs');
   #|  try { mkdirSync('.tornado', { recursive: true }); } catch {}
-  #|  const watcherPath = path.join(process.cwd(), 'sdk', 'stdin-watcher.mjs');
+  #|  const watcherPath = path.join(__dirname, '..', 'sdk', 'stdin-watcher.mjs');
   #|  const watcher = spawn(process.execPath, [watcherPath], {
   #|    stdio: ['inherit', 'pipe', 'inherit'],
   #|    detached: false,

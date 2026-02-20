@@ -135,7 +135,12 @@ pub fn ReviewAgent::review_perspective(
   let prompt = self.build_prompt(perspective, task.description, task_output, context)
   let system = "You are a code reviewer focusing on \{perspective}. Be concise and actionable."
   let output = backend.run(prompt, system, on_event)
-  let verdict = self.parse_verdict(output.content)
+  // If the review backend failed, reject rather than silently approving
+  let verdict = match output.status {
+    Failed(err) =>
+      @types.ReviewVerdict::Rejected("Review backend failed: \{err}")
+    _ => self.parse_verdict(output.content)
+  }
   let result : @types.ReviewResult = {
     reviewer_id: self.reviewer_id,
     verdict,

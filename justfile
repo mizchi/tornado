@@ -12,6 +12,15 @@ test:
 build:
   moon build --target js src/cmd/app
 
+pack: build
+  mkdir -p bin
+  echo '#!/usr/bin/env node' > bin/tornado.js
+  cat _build/js/debug/build/cmd/app/app.js >> bin/tornado.js
+  chmod +x bin/tornado.js
+
+publish: pack
+  npm publish --access public
+
 run *args: build
   node _build/js/debug/build/cmd/app/app.js {{args}}
 

@@ -1,14 +1,23 @@
 {
-  "name": "tornado",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "name": "@mizchi/tornado",
+  "version": "0.1.0",
+  "description": "Multi-agent development orchestrator with TUI",
+  "bin": {
+    "tornado": "bin/tornado.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "files": [
+    "bin/",
+    "sdk/"
+  ],
+  "keywords": [
+    "moonbit",
+    "agent",
+    "orchestration",
+    "tui",
+    "cli"
+  ],
+  "author": "mizchi",
+  "license": "MIT",
   "type": "commonjs",
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.49",

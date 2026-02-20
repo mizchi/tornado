@@ -1,4 +1,5 @@
 _build/
+bin/
 .mooncakes/
 .tornado/
 target/

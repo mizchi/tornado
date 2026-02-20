@@ -248,3 +248,45 @@ test "parse_verdict with surrounding noise extracts correctly" {
     _ => fail("Expected NeedsChanges")
   }
 }
+
+test "review_perspective propagates backend failure instead of silent approval" {
+  // When the review backend fails, review_perspective should NOT return Approved.
+  // Previously, a failing backend returned empty content, and parse_verdict("")
+  // defaulted to Approved — silently approving without any actual review.
+  let failing = @agent.FailingMockBackend::new(error_msg="API rate limit exceeded")
+  let backend = failing.boxed()
+  let ra = @review.ReviewAgent::new("r1")
+  let task = @types.Task::new("t1", "implement auth")
+  task.complete("some code")
+  let result = ra.review_perspective(
+    @review.ReviewPerspective::CodeQuality,
+    task,
+    backend,
+    "",
+  )
+  // The verdict should indicate failure, NOT silently approve
+  match result.verdict {
+    @types.ReviewVerdict::Rejected(reason) => {
+      assert_true(reason.contains("API rate limit exceeded"))
+    }
+    other => fail("Expected Rejected on backend failure, got \{other}")
+  }
+}
+
+test "review merges correctly when one perspective backend fails" {
+  // When a backend fails during multi-perspective review, the merged result
+  // should reflect the failure rather than silently approving.
+  let failing = @agent.FailingMockBackend::new(error_msg="connection timeout")
+  let backend = failing.boxed()
+  let ra = @review.ReviewAgent::new("r1")
+  let task = @types.Task::new("t1", "implement feature")
+  task.complete("done")
+  let result = ra.review(task, backend)
+  // Should be Rejected since the review backend failed, not silently Approved
+  match result.verdict {
+    @types.ReviewVerdict::Rejected(reason) => {
+      assert_true(reason.contains("connection timeout"))
+    }
+    other => fail("Expected Rejected on backend failure, got \{other}")
+  }
+}

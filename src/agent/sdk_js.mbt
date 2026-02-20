@@ -16,7 +16,7 @@ extern "js" fn js_run_sdk(runner : String, opts_json : String) -> String =
   #|  try {
   #|    const { spawnSync } = require('child_process');
   #|    const path = require('path');
-  #|    const runnerPath = path.join(process.cwd(), 'sdk', runner);
+  #|    const runnerPath = path.join(__dirname, '..', 'sdk', runner);
   #|    const result = spawnSync(process.execPath, [runnerPath, optsJson], {
   #|      encoding: 'utf-8',
   #|      stdio: ['pipe', 'pipe', 'inherit'],
