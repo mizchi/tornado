@@ -245,32 +245,62 @@ pub fn parse_sdk_result_event(
     Some(Number(n, ..)) => buf.write_string(", turns=\{n.to_int()}")
     _ => ()
   }
+  // Parse usage and emit structured Usage event
+  let mut input_tokens = 0
+  let mut output_tokens = 0
+  let mut cache_read = 0
+  let mut cache_write = 0
+  let mut cost_usd = 0.0
+  match map.get("total_cost_usd") {
+    Some(Number(n, ..)) => cost_usd = n
+    _ =>
+      match map.get("cost_usd") {
+        Some(Number(n, ..)) => cost_usd = n
+        _ => ()
+      }
+  }
   match map.get("usage") {
     Some(Object(usage)) => {
-      let input_tokens = match usage.get("input_tokens") {
+      input_tokens = match usage.get("input_tokens") {
         Some(Number(n, ..)) => n.to_int()
         _ => 0
       }
-      let output_tokens = match usage.get("output_tokens") {
+      output_tokens = match usage.get("output_tokens") {
+        Some(Number(n, ..)) => n.to_int()
+        _ => 0
+      }
+      cache_read = match usage.get("cache_read_input_tokens") {
+        Some(Number(n, ..)) => n.to_int()
+        _ => 0
+      }
+      cache_write = match usage.get("cache_creation_input_tokens") {
         Some(Number(n, ..)) => n.to_int()
         _ => 0
       }
       if input_tokens > 0 || output_tokens > 0 {
-        buf.write_string(", tokens=\{input_tokens}in/\{output_tokens}out")
+        buf.write_string(
+          ", tokens=\{input_tokens}in/\{output_tokens}out",
+        )
+        if cache_read > 0 {
+          buf.write_string(" (cache_read=\{cache_read})")
+        }
       }
     }
     _ => ()
   }
-  // Extract final result text
-  match map.get("result") {
-    Some(String(result_text)) =>
-      if not(result_text.is_empty()) {
-        on_output(@types.AgentEvent::Info(buf.to_string()))
-        return
-      }
-    _ => ()
-  }
   on_output(@types.AgentEvent::Info(buf.to_string()))
+  // Emit structured usage for tracking
+  if input_tokens > 0 || output_tokens > 0 || cost_usd > 0.0 {
+    on_output(
+      @types.AgentEvent::Usage(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read=cache_read,
+        cache_write=cache_write,
+        cost_usd=cost_usd,
+      ),
+    )
+  }
 }
 
 ///| Run via codex CLI (plain text output)

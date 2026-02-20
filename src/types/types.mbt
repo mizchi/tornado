@@ -133,6 +133,13 @@ pub(all) enum AgentEvent {
   SubAgentEnd(agent_type~ : String)
   StatusChange(AgentStatus)
   SessionId(String)
+  Usage(
+    input_tokens~ : Int,
+    output_tokens~ : Int,
+    cache_read~ : Int,
+    cache_write~ : Int,
+    cost_usd~ : Double,
+  )
 }
 
 ///| Result of an agent's execution

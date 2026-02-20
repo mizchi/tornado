@@ -5,6 +5,7 @@
     "mizchi/tornado/config",
     "mizchi/tornado/agent",
     "mizchi/tornado/review",
+    "mizchi/tornado/display",
     "mizchi/x/sys",
     "moonbitlang/core/json"
   ],

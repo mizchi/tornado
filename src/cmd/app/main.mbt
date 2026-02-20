@@ -420,6 +420,12 @@ fn run_repl(config_path : String?) -> Unit {
   let mut iteration = 0
   let mut next_task : String = ""
   let mut last_review_summary : String = ""
+  // ── Token usage tracking ──
+  let mut total_input_tokens = 0
+  let mut total_output_tokens = 0
+  let mut total_cache_read = 0
+  let mut total_cache_write = 0
+  let mut total_cost_usd = 0.0
   // ── Check for saved session ──
   match load_session() {
     Some(saved) => {
@@ -494,7 +500,29 @@ fn run_repl(config_path : String?) -> Unit {
         agent_sessions,
       },
     )
-    let dev_result = run_dev(dev_id, backends, next_task, agent_sessions)
+    // Per-iteration usage tracking
+    let mut iter_input_tokens = 0
+    let mut iter_output_tokens = 0
+    let mut iter_cache_read = 0
+    let mut iter_cache_write = 0
+    let mut iter_cost_usd = 0.0
+    let on_usage : (Int, Int, Int, Int, Double) -> Unit = fn(
+      it, ot, cr, cw, cost
+    ) {
+      iter_input_tokens += it
+      iter_output_tokens += ot
+      iter_cache_read += cr
+      iter_cache_write += cw
+      iter_cost_usd += cost
+      total_input_tokens += it
+      total_output_tokens += ot
+      total_cache_read += cr
+      total_cache_write += cw
+      total_cost_usd += cost
+    }
+    let dev_result = run_dev(
+      dev_id, backends, next_task, agent_sessions, on_usage~,
+    )
     // ── Check for user interrupt after dev ──
     let post_dev_interrupt = check_interrupt()
     if not(post_dev_interrupt.is_empty()) {
@@ -524,6 +552,7 @@ fn run_repl(config_path : String?) -> Unit {
           dev_result,
           config.max_review_cycles,
           agent_sessions,
+          on_usage~,
         )
       None => {
         log("SKIP", "No reviewer configured")
@@ -545,6 +574,14 @@ fn run_repl(config_path : String?) -> Unit {
           },
         )
         log("HEARTBEAT", "=== Iteration \{iteration} complete ===")
+        log(
+          "USAGE",
+          "Iter \{iteration}: \{iter_input_tokens}in/\{iter_output_tokens}out (cache: \{iter_cache_read}r/\{iter_cache_write}w), $\{iter_cost_usd}",
+        )
+        log(
+          "USAGE",
+          "Total: \{total_input_tokens}in/\{total_output_tokens}out (cache: \{total_cache_read}r/\{total_cache_write}w), $\{total_cost_usd}",
+        )
         // Check for user interrupt → use as next task
         let user_input = check_interrupt()
         if not(user_input.is_empty()) {
@@ -574,6 +611,14 @@ fn run_repl(config_path : String?) -> Unit {
           },
         )
         log("HEARTBEAT", "=== Iteration \{iteration} complete (REJECTED) ===")
+        log(
+          "USAGE",
+          "Iter \{iteration}: \{iter_input_tokens}in/\{iter_output_tokens}out (cache: \{iter_cache_read}r/\{iter_cache_write}w), $\{iter_cost_usd}",
+        )
+        log(
+          "USAGE",
+          "Total: \{total_input_tokens}in/\{total_output_tokens}out (cache: \{total_cache_read}r/\{total_cache_write}w), $\{total_cost_usd}",
+        )
         // Check for queued user input first
         let queued = check_interrupt()
         if not(queued.is_empty()) {
@@ -636,12 +681,13 @@ fn find_agent_id(
   None
 }
 
-///| Run dev agent, return output
+///| Run dev agent, return output and call on_usage for token tracking
 fn run_dev(
   dev_id : String?,
   backends : Map[String, @agent.BoxedBackend],
   task : String,
   agent_sessions : Map[String, String],
+  on_usage~ : (Int, Int, Int, Int, Double) -> Unit = fn(_, _, _, _, _) {  },
 ) -> String {
   let id = dev_id.unwrap_or("dev")
   match backends.get(id) {
@@ -680,6 +726,13 @@ fn run_dev(
             agent_sessions[id] = sid
             log("DEV", "\{id} session: \{sid}")
           }
+          @types.AgentEvent::Usage(
+            input_tokens=it,
+            output_tokens=ot,
+            cache_read=cr,
+            cache_write=cw,
+            cost_usd=cost,
+          ) => on_usage(it, ot, cr, cw, cost)
         }
       })
       println("")
@@ -738,6 +791,7 @@ fn run_review(
   dev_output : String,
   max_cycles : Int,
   agent_sessions : Map[String, String],
+  on_usage~ : (Int, Int, Int, Int, Double) -> Unit = fn(_, _, _, _, _) {  },
 ) -> ReviewOutcome {
   match backends.get(reviewer_id) {
     Some(backend) => {
@@ -771,6 +825,13 @@ fn run_review(
             agent_sessions[reviewer_id] = sid
             log("REVIEW", "\{reviewer_id} session: \{sid}")
           }
+          @types.AgentEvent::Usage(
+            input_tokens=it,
+            output_tokens=ot,
+            cache_read=cr,
+            cache_write=cw,
+            cost_usd=cost,
+          ) => on_usage(it, ot, cr, cw, cost)
           _ => ()
         }
       }
@@ -808,7 +869,7 @@ fn run_review(
             )
             let rework_task = "\{task}\n\nFeedback from review:\n\{feedback}"
             current_output = run_dev(
-              dev_id, backends, rework_task, agent_sessions,
+              dev_id, backends, rework_task, agent_sessions, on_usage~,
             )
             log("REVIEW", "Re-reviewing after rework (3 perspectives)...")
             let fresh_context = gather_review_context()
