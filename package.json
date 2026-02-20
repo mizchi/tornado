@@ -1,6 +1,6 @@
 {
   "name": "@mizchi/tornado",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Multi-agent development orchestrator with TUI",
   "bin": {
     "tornado": "bin/tornado.js"
@@ -9,6 +9,18 @@
     "bin/",
     "sdk/"
   ],
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mizchi/tornado"
+  },
+  "homepage": "https://github.com/mizchi/tornado",
+  "bugs": {
+    "url": "https://github.com/mizchi/tornado/issues"
+  },
   "keywords": [
     "moonbit",
     "agent",
@@ -18,9 +30,15 @@
   ],
   "author": "mizchi",
   "license": "MIT",
-  "type": "commonjs",
+  "scripts": {
+    "build:sdk": "tsc -p tsconfig.sdk.json"
+  },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.49",
     "@openai/codex-sdk": "^0.104.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3"
   }
 }

@@ -4,29 +4,27 @@ let session_file : String = ".tornado/session.json"
 
 fn main {
   let args = @sys.get_cli_args()
-  if args.length() < 2 {
-    run_repl(None)
-    return
-  }
-  let command = args[1]
+  let command = @cli.parse_cli_args(args, is_existing_file)
   match command {
-    "run" => {
-      let config_path : String? = if args.length() >= 3 {
-        Some(args[2])
-      } else {
-        None
+    @cli.CliCommand::Run(
+      config_path=config_path,
+      plan_path=plan_path,
+      dev_kind=dev_kind,
+      review_kind=review_kind,
+      warnings=warnings,
+    ) => {
+      for w in warnings {
+        log("WARN", w)
       }
-      run_repl(config_path)
+      let initial_task = load_plan_task(plan_path)
+      run_repl(config_path, initial_task, dev_kind, review_kind)
     }
-    "validate" => {
-      if args.length() < 3 {
-        println("Usage: tornado validate <config.json>")
-        return
+    @cli.CliCommand::Validate(path) =>
+      match path {
+        Some(config_path) => run_validate(config_path)
+        None => println("Usage: tornado validate <config.json>")
       }
-      run_validate(args[2])
-    }
-    "help" | "--help" | "-h" => print_usage()
-    _ => run_repl(Some(command))
+    @cli.CliCommand::Help => print_usage()
   }
 }
 
@@ -36,15 +34,46 @@ fn print_usage() -> Unit {
   println("")
   println("Usage:")
   println(
+    "  tornado <plan.md> [--dev=codex] [--review=claude]  # start from plan file",
+  )
+  println(
+    "  tornado --config=tornado.json [--dev=codex] [--review=claude]",
+  )
+  println(
     "  tornado                    # start with preset (dev:claude-code, review:codex)",
   )
-  println("  tornado run                # same as above")
-  println("  tornado run <config.json>  # start with custom config")
+  println("  tornado --dev=codex --review=claude")
   println("  tornado validate <config>  # validate config file")
+  println("")
+  println("Agent kind options: claude | claude-code | codex | api | mock")
   println("")
   println("Autonomous heartbeat: dev runs → reviewer reviews →")
   println("dev continues with next task → forever until Ctrl+C.")
   println("Session auto-saved to .tornado/session.json for resume.")
+}
+
+fn is_existing_file(path : String) -> Bool {
+  let content = read_file_sync(path)
+  not(content.has_prefix("ERROR:"))
+}
+
+fn load_plan_task(plan_path : String?) -> String? {
+  match plan_path {
+    Some(path) => {
+      let content = read_file_sync(path)
+      if content.has_prefix("ERROR:") {
+        log("WARN", "Failed to read plan file \{path}: \{content}")
+        None
+      } else if content.trim().to_string().is_empty() {
+        log("WARN", "Plan file is empty: \{path}")
+        None
+      } else {
+        log("BOOT", "Loaded plan file: \{path}")
+        Some(content)
+      }
+    }
+    None => None
+  }
 }
 
 ///| Load config from file, or use preset
@@ -296,11 +325,29 @@ fn build_continuation_task(
 // ── REPL + Autonomous heartbeat ──────────────────────────────
 
 ///| Autonomous loop: task → dev → review → continue
-fn run_repl(config_path : String?) -> Unit {
-  let config = load_config(config_path)
+fn run_repl(
+  config_path : String?,
+  initial_task : String?,
+  dev_kind : @types.AgentKind?,
+  review_kind : @types.AgentKind?,
+) -> Unit {
+  let loaded_config = load_config(config_path)
+  let config = @cli.apply_kind_overrides(
+    loaded_config,
+    dev_kind=dev_kind,
+    review_kind=review_kind,
+  )
   println("")
   println("  tornado - autonomous development orchestrator")
   println("")
+  match dev_kind {
+    Some(kind) => log("BOOT", "Override: dev=\{@cli.kind_name(kind)}")
+    None => ()
+  }
+  match review_kind {
+    Some(kind) => log("BOOT", "Override: review=\{@cli.kind_name(kind)}")
+    None => ()
+  }
   log("BOOT", "Agents:")
   for agent in config.agents {
     log("BOOT", "  \{agent.id} (\{agent.kind}, \{agent.role})")
@@ -321,50 +368,62 @@ fn run_repl(config_path : String?) -> Unit {
   let mut total_cache_write = 0
   let mut total_cost_usd = 0.0
   // ── Check for saved session ──
-  match load_session() {
-    Some(saved) => {
-      log("RESUME", "Found saved session (iteration \{saved.iteration})")
-      log("RESUME", "  Phase: \{saved.phase}")
-      log("RESUME", "  Task: \{truncate(saved.task, 80)}")
-      for entry in saved.agent_sessions {
-        log("RESUME", "  Agent \{entry.0}: session \{entry.1}")
-        agent_sessions[entry.0] = entry.1
-      }
-      println("")
-      let answer = prompt_sync("Resume this session? [Y/n] ")
-      if answer == "n" || answer == "N" || answer == "no" {
-        log("RESUME", "Starting fresh")
-        clear_session()
-      } else {
-        log("RESUME", "Resuming...")
-        restore_sessions(backends, agent_sessions)
-        iteration = saved.iteration
-        last_review_summary = saved.review_summary
-        match saved.phase {
-          "dev" | "review" => next_task = saved.task
-          _ => {
-            // idle → previous iteration done, build continuation
-            next_task = build_continuation_task(
-              saved.task, saved.review_summary,
-            )
+  if initial_task is None {
+    match load_session() {
+      Some(saved) => {
+        log("RESUME", "Found saved session (iteration \{saved.iteration})")
+        log("RESUME", "  Phase: \{saved.phase}")
+        log("RESUME", "  Task: \{truncate(saved.task, 80)}")
+        for entry in saved.agent_sessions {
+          log("RESUME", "  Agent \{entry.0}: session \{entry.1}")
+          agent_sessions[entry.0] = entry.1
+        }
+        println("")
+        let answer = prompt_sync("Resume this session? [Y/n] ")
+        if answer == "n" || answer == "N" || answer == "no" {
+          log("RESUME", "Starting fresh")
+          clear_session()
+        } else {
+          log("RESUME", "Resuming...")
+          restore_sessions(backends, agent_sessions)
+          iteration = saved.iteration
+          last_review_summary = saved.review_summary
+          match saved.phase {
+            "dev" | "review" => next_task = saved.task
+            _ => {
+              // idle → previous iteration done, build continuation
+              next_task = build_continuation_task(
+                saved.task, saved.review_summary,
+              )
+            }
           }
         }
       }
+      None => ()
     }
-    None => ()
+  } else {
+    log("BOOT", "Plan file mode: skip session resume")
   }
   // ── Get initial task if needed ──
   if next_task.is_empty() {
-    println("")
-    next_task = prompt_sync("task> ")
-    if next_task == "quit" || next_task == "exit" {
-      log("EXIT", "Bye.")
-      return
-    }
-    if next_task.is_empty() {
-      // No task given → start from TODO files
-      next_task = build_initial_task_from_todos()
-      log("HEARTBEAT", "No task specified. Starting from project TODO files.")
+    match initial_task {
+      Some(task) => {
+        next_task = task
+        log("HEARTBEAT", "Starting from provided plan file")
+      }
+      None => {
+        println("")
+        next_task = prompt_sync("task> ")
+        if next_task == "quit" || next_task == "exit" {
+          log("EXIT", "Bye.")
+          return
+        }
+        if next_task.is_empty() {
+          // No task given → start from TODO files
+          next_task = build_initial_task_from_todos()
+          log("HEARTBEAT", "No task specified. Starting from project TODO files.")
+        }
+      }
     }
   }
   // ── Start stdin watcher for user interrupts ──

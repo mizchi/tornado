@@ -4,12 +4,16 @@ setup:
   npm install
 
 check:
+  npm run -s build:sdk
   moon check --target js
 
 test:
+  npm run -s build:sdk
+  node --test sdk/*.test.mjs
   moon test --target js
 
 build:
+  npm run -s build:sdk
   moon build --target js src/cmd/app
 
 pack: build
