@@ -426,6 +426,22 @@ fn run_repl(config_path : String?) -> Unit {
       )
     }
     // ── review phase ──
+    // Skip review if dev produced no output (likely failed)
+    if dev_result.trim().is_empty() {
+      log("HEARTBEAT", "Dev produced no output, skipping review")
+      last_review_summary = "Dev agent produced no output - likely failed"
+      save_session(
+        {
+          iteration,
+          phase: "idle",
+          task: next_task,
+          dev_output: dev_result,
+          review_summary: last_review_summary,
+          agent_sessions,
+        },
+      )
+      continue
+    }
     save_session(
       {
         iteration,
@@ -598,11 +614,11 @@ fn run_dev(
           @types.AgentEvent::Info(msg) =>
             log("INFO", "\{id}: \{msg}")
           @types.AgentEvent::ToolCall(name=tool_name, input=tool_input) =>
-            log("TOOL", "\{id} -> \{format_tool_call(tool_name, tool_input)}")
+            log("CALL", "\{id} \{format_tool_call(tool_name, tool_input)}")
           @types.AgentEvent::ToolResult(name=tool_name, output=tool_output) =>
             log(
-              "TOOL",
-              "\{id} <- \{format_tool_result(tool_name, tool_output)}",
+              "DONE",
+              "\{id} \{format_tool_result(tool_name, tool_output)}",
             )
           @types.AgentEvent::SubAgentStart(
             agent_type=agent_type,
@@ -702,16 +718,16 @@ fn run_review(
             log("INFO", "\{reviewer_id}: \{msg}")
           @types.AgentEvent::ToolCall(name=tool_name, input=tool_input) =>
             log(
-              "TOOL",
-              "\{reviewer_id} -> \{tool_name}(\{truncate(tool_input, 100)})",
+              "CALL",
+              "\{reviewer_id} \{format_tool_call(tool_name, tool_input)}",
             )
           @types.AgentEvent::ToolResult(
             name=tool_name,
             output=tool_output,
           ) =>
             log(
-              "TOOL",
-              "\{reviewer_id} <- \{tool_name}: \{truncate(tool_output, 120)}",
+              "DONE",
+              "\{reviewer_id} \{format_tool_result(tool_name, tool_output)}",
             )
           @types.AgentEvent::StatusChange(status) =>
             log("REVIEW", "\{reviewer_id} -> \{status}")
@@ -751,6 +767,7 @@ fn run_review(
           let mut cycle = 1
           let mut current_output = dev_output
           let mut current_items = items
+          let mut latest_summary = review.summary
           while cycle < max_cycles {
             cycle += 1
             log(
@@ -789,6 +806,7 @@ fn run_review(
                   log("REVIEW", "  - \{item}")
                 }
                 current_items = new_items
+                latest_summary = rework_review.summary
               }
               Rejected(reason) => {
                 log("REVIEW", "REJECTED: \{reason}")
@@ -797,7 +815,7 @@ fn run_review(
             }
           }
           log("REVIEW", "Max review cycles reached, continuing anyway")
-          ReviewOutcome::Approved(review.summary)
+          ReviewOutcome::Approved(latest_summary)
         }
         Rejected(reason) => {
           println("")

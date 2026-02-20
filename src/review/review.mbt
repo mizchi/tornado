@@ -223,7 +223,9 @@ pub fn ReviewAgent::format_review(
   buf.to_string()
 }
 
-///| Extract content between XML-style tags
+///| Extract content between XML-style tags.
+///| Searches for the close tag starting from after the open tag,
+///| preventing cross-tag mismatches when close tag appears before open tag.
 fn extract_tag_content(text : String, tag_name : String) -> String? {
   let open_tag = "<\{tag_name}>"
   let close_tag = "</\{tag_name}>"
@@ -231,16 +233,21 @@ fn extract_tag_content(text : String, tag_name : String) -> String? {
   match open_idx {
     Some(start) => {
       let content_start = start + open_tag.length()
-      let close_idx = text.find(close_tag)
+      // Search for close tag only in the text after the open tag
+      let remaining = text
+        .view(start_offset=content_start)
+        .to_string()
+      let close_idx = remaining.find(close_tag)
       match close_idx {
-        Some(end) =>
-          if end >= content_start {
-            Some(
-              text.view(start_offset=content_start, end_offset=end).to_string(),
-            )
-          } else {
-            None
-          }
+        Some(rel_end) =>
+          Some(
+            text
+              .view(
+                start_offset=content_start,
+                end_offset=content_start + rel_end,
+              )
+              .to_string(),
+          )
         None => None
       }
     }

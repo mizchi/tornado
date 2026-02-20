@@ -11,6 +11,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.49"
+    "@anthropic-ai/claude-agent-sdk": "^0.2.49",
+    "@openai/codex-sdk": "^0.104.0"
   }
 }

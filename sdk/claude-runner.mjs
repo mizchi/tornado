@@ -33,7 +33,7 @@ for await (const message of query({
   switch (message.type) {
     case "system":
       if (message.subtype === "init") {
-        log("SDK", `Session init: model=${message.model || "unknown"}, session=${message.session_id || "new"}`);
+        log("Claude", `Session init: model=${message.model || "unknown"}, session=${message.session_id || "new"}`);
       }
       break;
 
@@ -42,11 +42,11 @@ for await (const message of query({
       if (event?.type === "content_block_start") {
         const block = event.content_block;
         if (block?.type === "tool_use") {
-          log("SDK", `Tool: ${block.name}`);
+          log("Claude", `Tool: ${block.name}`);
         } else if (block?.type === "thinking") {
-          log("SDK", "Thinking...");
+          log("Claude", "Thinking...");
         } else if (block?.type === "text") {
-          log("SDK", "Generating...");
+          log("Claude", "Generating...");
         }
       }
       break;
@@ -58,7 +58,7 @@ for await (const message of query({
         for (const block of content) {
           if (block.type === "tool_use") {
             const inputPreview = JSON.stringify(block.input).slice(0, 100);
-            log("SDK", `${block.name}(${inputPreview})`);
+            log("Claude", `${block.name}(${inputPreview})`);
           }
         }
       }
@@ -80,7 +80,7 @@ for await (const message of query({
           parts.push(`${input_tokens || 0}in/${output_tokens || 0}out`);
         }
       }
-      log("SDK", parts.join(", "));
+      log("Claude", parts.join(", "));
       break;
     }
   }

@@ -65,7 +65,7 @@ fn SubprocessBackend::run_claude_code(
   let opts_json = Json::object(opts).stringify()
   on_output(
     @types.AgentEvent::Info(
-      "Launching: claude-agent-sdk" +
+      "Launching: Claude" +
       (if not(self.session_id.is_empty()) {
         " (resume: \{self.session_id})"
       } else {
@@ -303,61 +303,62 @@ pub fn parse_sdk_result_event(
   }
 }
 
-///| Run via codex CLI (plain text output)
+///| Run via Codex SDK
 fn SubprocessBackend::run_codex(
   self : SubprocessBackend,
   task : String,
   _system_prompt : String,
   on_output : (@types.AgentEvent) -> Unit,
 ) -> @types.AgentResult {
-  let args : Array[String] = []
-  // If we have a session, use "resume" subcommand
-  if not(self.session_id.is_empty()) {
-    args.push("resume")
-    args.push("--last")
-  } else {
-    args.push(task)
-  }
+  let opts : Map[String, Json] = {}
+  opts["prompt"] = task.to_json()
   if not(self.model.is_empty()) {
-    args.push("--model")
-    args.push(self.model)
+    opts["model"] = self.model.to_json()
   }
-  let args_json = Json::array(args.map(fn(s) { s.to_json() })).stringify()
-  let codex_cmd = if not(self.session_id.is_empty()) {
-    "codex resume --last"
-  } else {
-    "codex <task>"
+  if not(self.session_id.is_empty()) {
+    opts["threadId"] = self.session_id.to_json()
   }
-  on_output(@types.AgentEvent::Info("Launching: \{codex_cmd}"))
+  let opts_json = Json::object(opts).stringify()
+  on_output(
+    @types.AgentEvent::Info(
+      "Launching: Codex" +
+      (if not(self.session_id.is_empty()) {
+        " (resume: \{self.session_id})"
+      } else {
+        " (new session)"
+      }),
+    ),
+  )
+  let raw_output = run_codex_sdk(opts_json)
+  if raw_output.has_prefix("ERROR:") {
+    let err = raw_output
+    on_output(
+      @types.AgentEvent::StatusChange(@types.AgentStatus::Failed(err)),
+    )
+    return { content: "", status: @types.AgentStatus::Failed(err), error: Some(err) }
+  }
+  // Parse JSONL output (reuse the same parse_sdk_event format)
   let buf = StringBuilder::new()
   let mut has_error = false
   let error_buf = StringBuilder::new()
-  @ffi.exec_stream(
-    "codex",
-    args_json,
-    fn(line) {
-      buf.write_string(line)
-      buf.write_string("\n")
-      on_output(@types.AgentEvent::OutputLine(line))
-    },
-    fn() {  },
-    fn(err) {
+  let lines = raw_output.split("\n")
+  for line_view in lines {
+    let line = line_view.to_string().trim().to_string()
+    if line.is_empty() {
+      continue
+    }
+    if self.parse_sdk_event(line, buf, error_buf, on_output) {
       has_error = true
-      error_buf.write_string(err)
-      on_output(
-        @types.AgentEvent::StatusChange(@types.AgentStatus::Failed(err)),
-      )
-    },
-  )
+    }
+  }
   let content = buf.to_string()
   if has_error {
     let err = error_buf.to_string()
+    on_output(
+      @types.AgentEvent::StatusChange(@types.AgentStatus::Failed(err)),
+    )
     { content, status: @types.AgentStatus::Failed(err), error: Some(err) }
   } else {
-    // Mark as having a session for future resume
-    if self.session_id.is_empty() {
-      self.session_id = "codex-last"
-    }
     on_output(@types.AgentEvent::StatusChange(@types.AgentStatus::Completed))
     { content, status: Completed, error: None }
   }
