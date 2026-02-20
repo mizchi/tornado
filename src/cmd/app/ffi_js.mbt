@@ -64,6 +64,59 @@ extern "js" fn js_exec_sync(command : String) -> String =
   #|  }
   #|}
 
+///| Start background stdin watcher process
+pub fn start_stdin_watcher() -> Unit {
+  js_start_stdin_watcher()
+}
+
+///|
+extern "js" fn js_start_stdin_watcher() -> Unit =
+  #|() => {
+  #|  const { spawn } = require('child_process');
+  #|  const path = require('path');
+  #|  const { mkdirSync } = require('fs');
+  #|  try { mkdirSync('.tornado', { recursive: true }); } catch {}
+  #|  const watcherPath = path.join(process.cwd(), 'sdk', 'stdin-watcher.mjs');
+  #|  const watcher = spawn(process.execPath, [watcherPath], {
+  #|    stdio: ['inherit', 'pipe', 'inherit'],
+  #|    detached: false,
+  #|  });
+  #|  watcher.unref();
+  #|  process.on('exit', () => { try { watcher.kill(); } catch {} });
+  #|}
+
+///| Check for user interrupt input (non-blocking)
+pub fn check_interrupt() -> String {
+  js_check_interrupt()
+}
+
+///|
+extern "js" fn js_check_interrupt() -> String =
+  #|() => {
+  #|  const fs = require('fs');
+  #|  const file = '.tornado/interrupt.txt';
+  #|  try {
+  #|    const content = fs.readFileSync(file, 'utf-8').trim();
+  #|    if (content) {
+  #|      fs.writeFileSync(file, '', 'utf-8');
+  #|      return content;
+  #|    }
+  #|  } catch {}
+  #|  return '';
+  #|}
+
+///| Sleep for given milliseconds (blocking)
+pub fn sleep_ms(ms : Int) -> Unit {
+  js_sleep_ms(ms)
+}
+
+///|
+extern "js" fn js_sleep_ms(ms : Int) -> Unit =
+  #|(ms) => {
+  #|  const sab = new SharedArrayBuffer(4);
+  #|  Atomics.wait(new Int32Array(sab), 0, 0, ms);
+  #|}
+
 ///| Get current timestamp as "HH:MM:SS" string
 pub fn now_timestamp() -> String {
   js_now_timestamp()

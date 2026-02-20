@@ -467,11 +467,22 @@ fn run_repl(config_path : String?) -> Unit {
       log("HEARTBEAT", "No task specified. Starting from project TODO files.")
     }
   }
+  // ── Start stdin watcher for user interrupts ──
+  start_stdin_watcher()
+  log("BOOT", "Type and press Enter anytime to queue instructions.")
+  println("")
   // ── Autonomous loop: runs until Ctrl+C ──
   while true {
     iteration += 1
     log("HEARTBEAT", "=== Iteration \{iteration} ===")
     log("HEARTBEAT", "Task: \{truncate(next_task, 120)}")
+    // ── Check for user interrupt before dev ──
+    let interrupt = check_interrupt()
+    if not(interrupt.is_empty()) {
+      log("USER", "Applying user instructions: \{truncate(interrupt, 100)}")
+      next_task = next_task + "\n\n## Additional Instructions from User\n" +
+        interrupt
+    }
     // ── dev phase ──
     save_session(
       {
@@ -484,6 +495,14 @@ fn run_repl(config_path : String?) -> Unit {
       },
     )
     let dev_result = run_dev(dev_id, backends, next_task, agent_sessions)
+    // ── Check for user interrupt after dev ──
+    let post_dev_interrupt = check_interrupt()
+    if not(post_dev_interrupt.is_empty()) {
+      log(
+        "USER",
+        "User instructions for review: \{truncate(post_dev_interrupt, 100)}",
+      )
+    }
     // ── review phase ──
     save_session(
       {
@@ -526,9 +545,21 @@ fn run_repl(config_path : String?) -> Unit {
           },
         )
         log("HEARTBEAT", "=== Iteration \{iteration} complete ===")
-        // Auto-continue: build continuation task for dev
-        log("HEARTBEAT", "Building next task from project state...")
-        next_task = build_continuation_task(next_task, summary)
+        // Check for user interrupt → use as next task
+        let user_input = check_interrupt()
+        if not(user_input.is_empty()) {
+          log("USER", "Using user instructions: \{truncate(user_input, 100)}")
+          next_task = user_input
+        } else {
+          // Auto-continue: build continuation task for dev
+          log("HEARTBEAT", "Building next task from project state...")
+          next_task = build_continuation_task(next_task, summary)
+        }
+        // Also apply any post-dev interrupt that wasn't consumed
+        if not(post_dev_interrupt.is_empty()) {
+          next_task = next_task + "\n\n## Additional Instructions from User\n" +
+            post_dev_interrupt
+        }
       }
       Rejected(reason) => {
         last_review_summary = reason
@@ -543,17 +574,27 @@ fn run_repl(config_path : String?) -> Unit {
           },
         )
         log("HEARTBEAT", "=== Iteration \{iteration} complete (REJECTED) ===")
-        // Rejected → ask user for new direction
-        println("")
-        log(
-          "HEARTBEAT",
-          "Review rejected. Enter a new task or Ctrl+C to stop.",
-        )
-        next_task = prompt_sync("task> ")
-        if next_task.is_empty() || next_task == "quit" || next_task == "exit" {
-          log("EXIT", "Bye.")
-          clear_session()
-          return
+        // Check for queued user input first
+        let queued = check_interrupt()
+        if not(queued.is_empty()) {
+          log("USER", "Using queued instructions: \{truncate(queued, 100)}")
+          next_task = queued
+        } else {
+          // Wait for user input via interrupt file
+          println("")
+          log(
+            "HEARTBEAT",
+            "Review rejected. Type next task and press Enter (or Ctrl+C to stop).",
+          )
+          let mut user_input = ""
+          while user_input.is_empty() {
+            user_input = check_interrupt()
+            if user_input.is_empty() {
+              sleep_ms(500)
+            }
+          }
+          log("USER", "Received: \{truncate(user_input, 100)}")
+          next_task = user_input
         }
       }
     }
