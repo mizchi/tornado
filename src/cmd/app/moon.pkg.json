@@ -1,0 +1,14 @@
+{
+  "is-main": true,
+  "import": [
+    "mizchi/tornado/types",
+    "mizchi/tornado/config",
+    "mizchi/tornado/agent",
+    "mizchi/tornado/review",
+    "mizchi/x/sys",
+    "moonbitlang/core/json"
+  ],
+  "targets": {
+    "ffi_js.mbt": ["js"]
+  }
+}

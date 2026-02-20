@@ -1,0 +1,168 @@
+test "ReviewAgent::parse_verdict approved" {
+  let ra = @review.ReviewAgent::new("r1")
+  let verdict = ra.parse_verdict("The code looks great! <approved>")
+  inspect(verdict, content="Approved")
+}
+
+test "ReviewAgent::parse_verdict needs_changes" {
+  let ra = @review.ReviewAgent::new("r1")
+  let verdict = ra.parse_verdict(
+    "<needs_changes>fix typo, add tests</needs_changes>",
+  )
+  match verdict {
+    @types.ReviewVerdict::NeedsChanges(items) => {
+      assert_true(items.length() == 2)
+      inspect(items[0], content="fix typo")
+      inspect(items[1], content="add tests")
+    }
+    _ => fail("Expected NeedsChanges")
+  }
+}
+
+test "ReviewAgent::parse_verdict rejected" {
+  let ra = @review.ReviewAgent::new("r1")
+  let verdict = ra.parse_verdict("<rejected>security vulnerability</rejected>")
+  inspect(verdict, content="Rejected(\"security vulnerability\")")
+}
+
+test "ReviewAgent::parse_verdict defaults to approved" {
+  let ra = @review.ReviewAgent::new("r1")
+  let verdict = ra.parse_verdict("no tags here")
+  inspect(verdict, content="Approved")
+}
+
+test "ReviewAgent::build_prompt includes perspective-specific content" {
+  let ra = @review.ReviewAgent::new("r1")
+  let prompt = ra.build_prompt(
+    @review.ReviewPerspective::CodeQuality,
+    "build API",
+    "done building",
+    "",
+  )
+  assert_true(prompt.contains("build API"))
+  assert_true(prompt.contains("done building"))
+  assert_true(prompt.contains("Code Quality"))
+  assert_true(prompt.contains("<approved>"))
+}
+
+test "ReviewAgent::build_prompt performance perspective" {
+  let ra = @review.ReviewAgent::new("r1")
+  let prompt = ra.build_prompt(
+    @review.ReviewPerspective::Performance,
+    "optimize query",
+    "optimized",
+    "",
+  )
+  assert_true(prompt.contains("Performance"))
+  assert_true(prompt.contains("Algorithmic complexity"))
+}
+
+test "ReviewAgent::build_prompt security perspective" {
+  let ra = @review.ReviewAgent::new("r1")
+  let prompt = ra.build_prompt(
+    @review.ReviewPerspective::Security,
+    "add auth",
+    "added auth",
+    "",
+  )
+  assert_true(prompt.contains("Security"))
+  assert_true(prompt.contains("Injection vulnerabilities"))
+}
+
+test "ReviewAgent::build_prompt includes context when provided" {
+  let ra = @review.ReviewAgent::new("r1")
+  let prompt = ra.build_prompt(
+    @review.ReviewPerspective::CodeQuality,
+    "task",
+    "output",
+    "### Recent Commits\nabc123 fix bug",
+  )
+  assert_true(prompt.contains("Recent Commits"))
+  assert_true(prompt.contains("abc123 fix bug"))
+}
+
+test "ReviewAgent::review merges 3 perspectives - all approved" {
+  let mock = @agent.MockBackend::new(
+    default_response="<approved> looks good",
+  )
+  let backend = mock.boxed()
+  let ra = @review.ReviewAgent::new("r1")
+  let task = @types.Task::new("t1", "implement feature")
+  task.complete("feature implemented")
+  let result = ra.review(task, backend)
+  inspect(result.verdict, content="Approved")
+  inspect(result.reviewer_id, content="r1")
+  assert_true(task.review is Some(_))
+}
+
+test "ReviewAgent::review merges needs_changes with perspective tags" {
+  let mock = @agent.MockBackend::new(
+    default_response="<needs_changes>fix this</needs_changes>",
+  )
+  let backend = mock.boxed()
+  let ra = @review.ReviewAgent::new("r1")
+  let task = @types.Task::new("t1", "implement feature")
+  task.complete("done")
+  let result = ra.review(task, backend)
+  match result.verdict {
+    @types.ReviewVerdict::NeedsChanges(items) => {
+      // Each perspective returns 1 item, tagged with perspective name
+      assert_true(items.length() == 3)
+      assert_true(items[0].contains("[CodeQuality]"))
+      assert_true(items[1].contains("[Performance]"))
+      assert_true(items[2].contains("[Security]"))
+    }
+    _ => fail("Expected NeedsChanges")
+  }
+}
+
+test "ReviewAgent::review stops on rejected" {
+  let mock = @agent.MockBackend::new(
+    default_response="<rejected>critical flaw</rejected>",
+  )
+  let backend = mock.boxed()
+  let ra = @review.ReviewAgent::new("r1")
+  let task = @types.Task::new("t1", "feature")
+  task.complete("done")
+  let result = ra.review(task, backend)
+  match result.verdict {
+    @types.ReviewVerdict::Rejected(reason) =>
+      assert_true(reason.contains("[CodeQuality]"))
+    _ => fail("Expected Rejected")
+  }
+}
+
+test "ReviewAgent::perspectives returns 3" {
+  let ra = @review.ReviewAgent::new("r1")
+  assert_true(ra.perspectives().length() == 3)
+}
+
+test "ReviewAgent::format_review approved" {
+  let ra = @review.ReviewAgent::new("r1")
+  let task = @types.Task::new("t1", "build API")
+  let review : @types.ReviewResult = {
+    reviewer_id: "r1",
+    verdict: @types.ReviewVerdict::Approved,
+    summary: "Good work",
+    file_path: "",
+  }
+  let md = ra.format_review(task, review)
+  assert_true(md.contains("**APPROVED**"))
+  assert_true(md.contains("build API"))
+  assert_true(md.contains("Good work"))
+}
+
+test "ReviewAgent::format_review needs_changes" {
+  let ra = @review.ReviewAgent::new("r1")
+  let task = @types.Task::new("t1", "build API")
+  let review : @types.ReviewResult = {
+    reviewer_id: "r1",
+    verdict: @types.ReviewVerdict::NeedsChanges(["fix tests", "add docs"]),
+    summary: "Almost there",
+    file_path: "",
+  }
+  let md = ra.format_review(task, review)
+  assert_true(md.contains("**NEEDS CHANGES**"))
+  assert_true(md.contains("- fix tests"))
+  assert_true(md.contains("- add docs"))
+}

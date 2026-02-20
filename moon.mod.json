@@ -1,0 +1,16 @@
+{
+  "name": "mizchi/tornado",
+  "version": "0.1.0",
+  "deps": {
+    "mizchi/llm": "0.2.2",
+    "mizchi/x": "0.1.3",
+    "mizchi/tui": "0.7.0"
+  },
+  "source": "src",
+  "preferred-target": "js",
+  "readme": "README.md",
+  "repository": "https://github.com/mizchi/tornado",
+  "license": "MIT",
+  "keywords": ["moonbit", "agent", "orchestration", "tui"],
+  "description": "Multi-agent development orchestrator with TUI"
+}

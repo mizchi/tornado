@@ -1,0 +1,21 @@
+{
+  "project_dir": ".",
+  "review_dir": "docs/reviews",
+  "max_review_cycles": 2,
+  "agents": [
+    {
+      "id": "dev-1",
+      "kind": "claude-code",
+      "role": "dev",
+      "working_dir": ".",
+      "max_iterations": 10
+    },
+    {
+      "id": "review-1",
+      "kind": "codex",
+      "role": "review",
+      "working_dir": ".",
+      "max_iterations": 5
+    }
+  ]
+}
