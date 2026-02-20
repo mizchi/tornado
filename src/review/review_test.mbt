@@ -207,3 +207,44 @@ test "extract_tag_content with close before open" {
   // No valid tag extraction, falls to default
   inspect(verdict, content="Approved")
 }
+
+test "extract_tag_content finds close tag after open, not before" {
+  let ra = @review.ReviewAgent::new("r1")
+  // Close tag first, then a real open/close pair — should extract from the real pair
+  let verdict = ra.parse_verdict(
+    "preamble </needs_changes>noise <needs_changes>fix naming</needs_changes>",
+  )
+  match verdict {
+    @types.ReviewVerdict::NeedsChanges(items) => {
+      assert_true(items.length() == 1)
+      inspect(items[0], content="fix naming")
+    }
+    _ => fail("Expected NeedsChanges, got \{verdict}")
+  }
+}
+
+test "extract_tag_content with rejected tag nested in text" {
+  let ra = @review.ReviewAgent::new("r1")
+  let verdict = ra.parse_verdict(
+    "Some analysis... </rejected>stale<rejected>real issue</rejected> more text",
+  )
+  match verdict {
+    @types.ReviewVerdict::Rejected(reason) =>
+      inspect(reason, content="real issue")
+    _ => fail("Expected Rejected, got \{verdict}")
+  }
+}
+
+test "parse_verdict with surrounding noise extracts correctly" {
+  let ra = @review.ReviewAgent::new("r1")
+  let input = "I reviewed the code carefully.\n\n<needs_changes>add error handling, improve naming</needs_changes>\n\nOverall the code needs work."
+  let verdict = ra.parse_verdict(input)
+  match verdict {
+    @types.ReviewVerdict::NeedsChanges(items) => {
+      assert_true(items.length() == 2)
+      inspect(items[0], content="add error handling")
+      inspect(items[1], content="improve naming")
+    }
+    _ => fail("Expected NeedsChanges")
+  }
+}
