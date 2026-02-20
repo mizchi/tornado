@@ -82,7 +82,7 @@ fn SubprocessBackend::run_claude_code(
     )
     return { content: "", status: @types.AgentStatus::Failed(err), error: Some(err) }
   }
-  // Parse JSONL output
+  // Parse JSONL output (single-pass: parse_sdk_event returns error status)
   let buf = StringBuilder::new()
   let mut has_error = false
   let error_buf = StringBuilder::new()
@@ -92,26 +92,8 @@ fn SubprocessBackend::run_claude_code(
     if line.is_empty() {
       continue
     }
-    self.parse_sdk_event(line, buf, error_buf, on_output) |> ignore
-    // Check for error
-    let json = @json.parse(line) catch { _ => continue }
-    match json {
-      Object(map) =>
-        match map.get("type") {
-          Some(String("result")) =>
-            match map.get("is_error") {
-              Some(True) => {
-                has_error = true
-                match map.get("result") {
-                  Some(String(err_msg)) => error_buf.write_string(err_msg)
-                  _ => ()
-                }
-              }
-              _ => ()
-            }
-          _ => ()
-        }
-      _ => ()
+    if self.parse_sdk_event(line, buf, error_buf, on_output) {
+      has_error = true
     }
   }
   let content = buf.to_string()
@@ -127,15 +109,16 @@ fn SubprocessBackend::run_claude_code(
   }
 }
 
-///| Parse a single SDK JSONL event line
+///| Parse a single SDK JSONL event line.
+///| Returns true if the line contained a result event with is_error=true.
 fn SubprocessBackend::parse_sdk_event(
   self : SubprocessBackend,
   line : String,
   buf : StringBuilder,
-  _error_buf : StringBuilder,
+  error_buf : StringBuilder,
   on_output : (@types.AgentEvent) -> Unit,
-) -> Unit {
-  let json = @json.parse(line) catch { _ => return }
+) -> Bool {
+  let json = @json.parse(line) catch { _ => return false }
   match json {
     Object(map) => {
       // Extract session_id from any message
@@ -164,7 +147,21 @@ fn SubprocessBackend::parse_sdk_event(
             // CLI-compatible event types
             "content_block_start" =>
               parse_content_block_start(map, on_output)
-            "result" => parse_sdk_result_event(map, on_output)
+            "result" => {
+              parse_sdk_result_event(map, on_output)
+              // Check for error in the result event
+              match map.get("is_error") {
+                Some(True) => {
+                  match map.get("result") {
+                    Some(String(err_msg)) =>
+                      error_buf.write_string(err_msg)
+                    _ => ()
+                  }
+                  return true
+                }
+                _ => ()
+              }
+            }
             _ => ()
           }
         _ => ()
@@ -172,6 +169,7 @@ fn SubprocessBackend::parse_sdk_event(
     }
     _ => ()
   }
+  false
 }
 
 ///| Parse an SDK stream_event's inner Anthropic event

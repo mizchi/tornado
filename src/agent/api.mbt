@@ -39,6 +39,8 @@ impl AgentBackend for ApiBackend with run(self, task, system_prompt, on_output) 
     { role: User, content: [@llm.ContentBlock::Text(task)] },
   )
   let buf = StringBuilder::new()
+  let mut has_error = false
+  let error_buf = StringBuilder::new()
   let handler : @llm.StreamHandler = {
     on_event: fn(event) {
       match event {
@@ -46,18 +48,26 @@ impl AgentBackend for ApiBackend with run(self, task, system_prompt, on_output) 
           buf.write_string(s)
           on_output(@types.AgentEvent::OutputLine(s))
         }
-        Error(msg) =>
+        Error(msg) => {
+          has_error = true
+          error_buf.write_string(msg)
           on_output(
             @types.AgentEvent::StatusChange(@types.AgentStatus::Failed(msg)),
           )
+        }
         _ => ()
       }
     },
   }
   self.provider.stream(messages, [], handler)
   let content = buf.to_string()
-  on_output(@types.AgentEvent::StatusChange(@types.AgentStatus::Completed))
-  { content, status: Completed, error: None }
+  if has_error {
+    let err = error_buf.to_string()
+    { content, status: @types.AgentStatus::Failed(err), error: Some(err) }
+  } else {
+    on_output(@types.AgentEvent::StatusChange(@types.AgentStatus::Completed))
+    { content, status: Completed, error: None }
+  }
 }
 
 ///| AgentBackend implementation for ApiBackend

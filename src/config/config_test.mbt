@@ -79,3 +79,89 @@ test "ProjectConfig::from_json_string invalid json" {
   }
   assert_true(caught)
 }
+
+test "parse warns on unknown agent kind" {
+  let json =
+    #|{
+    #|  "agents": [
+    #|    { "id": "dev-1", "kind": "claude_code", "role": "dev" }
+    #|  ]
+    #|}
+  let config = @config.ProjectConfig::from_json_string(json)
+  // Unknown kind "claude_code" (underscore) should generate a warning
+  assert_true(config.parse_warnings.length() == 1)
+  assert_true(config.parse_warnings[0].contains("unknown kind"))
+  assert_true(config.parse_warnings[0].contains("claude_code"))
+  // Should default to Mock
+  inspect(config.agents[0].kind, content="Mock")
+}
+
+test "parse warns on unknown agent role" {
+  let json =
+    #|{
+    #|  "agents": [
+    #|    { "id": "dev-1", "kind": "claude-code", "role": "reviewer" }
+    #|  ]
+    #|}
+  let config = @config.ProjectConfig::from_json_string(json)
+  // Unknown role "reviewer" (should be "review") generates a warning
+  assert_true(config.parse_warnings.length() == 1)
+  assert_true(config.parse_warnings[0].contains("unknown role"))
+  assert_true(config.parse_warnings[0].contains("reviewer"))
+  // Should default to Dev
+  inspect(config.agents[0].role, content="Dev")
+}
+
+test "parse warns on both unknown kind and role" {
+  let json =
+    #|{
+    #|  "agents": [
+    #|    { "id": "agent-1", "kind": "openai", "role": "coder" }
+    #|  ]
+    #|}
+  let config = @config.ProjectConfig::from_json_string(json)
+  assert_true(config.parse_warnings.length() == 2)
+  assert_true(config.parse_warnings[0].contains("unknown kind"))
+  assert_true(config.parse_warnings[1].contains("unknown role"))
+}
+
+test "validate includes parse warnings" {
+  let json =
+    #|{
+    #|  "agents": [
+    #|    { "id": "dev-1", "kind": "typo", "role": "dev" }
+    #|  ]
+    #|}
+  let config = @config.ProjectConfig::from_json_string(json)
+  let errors = config.validate()
+  // Should contain the parse warning about unknown kind
+  assert_true(errors.iter().any(fn(e) { e.contains("unknown kind") }))
+  assert_true(errors.iter().any(fn(e) { e.contains("typo") }))
+}
+
+test "valid kind and role produce no warnings" {
+  let json =
+    #|{
+    #|  "agents": [
+    #|    { "id": "dev-1", "kind": "claude-code", "role": "dev" },
+    #|    { "id": "rev-1", "kind": "codex", "role": "review" },
+    #|    { "id": "api-1", "kind": "api", "role": "orchestrator" },
+    #|    { "id": "test-1", "kind": "mock", "role": "dev" }
+    #|  ]
+    #|}
+  let config = @config.ProjectConfig::from_json_string(json)
+  assert_true(config.parse_warnings.is_empty())
+}
+
+test "valid config parse_warnings is empty" {
+  let json =
+    #|{
+    #|  "agents": [
+    #|    { "id": "dev-1", "kind": "claude-code", "role": "dev" }
+    #|  ]
+    #|}
+  let config = @config.ProjectConfig::from_json_string(json)
+  assert_true(config.parse_warnings.is_empty())
+  let errors = config.validate()
+  assert_true(errors.is_empty())
+}
