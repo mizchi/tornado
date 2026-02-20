@@ -166,3 +166,41 @@ test "ReviewAgent::format_review needs_changes" {
   assert_true(md.contains("- fix tests"))
   assert_true(md.contains("- add docs"))
 }
+
+test "ReviewAgent::parse_verdict prefers approved over needs_changes" {
+  let ra = @review.ReviewAgent::new("r1")
+  // <approved> appears before <needs_changes>, so approved wins
+  let verdict = ra.parse_verdict(
+    "<approved> but also <needs_changes>fix</needs_changes>",
+  )
+  inspect(verdict, content="Approved")
+}
+
+test "ReviewAgent::parse_verdict handles malformed close tag" {
+  let ra = @review.ReviewAgent::new("r1")
+  // Open tag without matching close tag
+  let verdict = ra.parse_verdict("<needs_changes>fix this")
+  // Falls through to default Approved since no close tag
+  inspect(verdict, content="Approved")
+}
+
+test "ReviewAgent::parse_verdict handles empty needs_changes" {
+  let ra = @review.ReviewAgent::new("r1")
+  let verdict = ra.parse_verdict("<needs_changes></needs_changes>")
+  // Empty content splits to empty items, all trimmed away
+  match verdict {
+    @types.ReviewVerdict::NeedsChanges(items) =>
+      assert_true(items.is_empty())
+    _ => fail("Expected NeedsChanges")
+  }
+}
+
+test "extract_tag_content with close before open" {
+  let ra = @review.ReviewAgent::new("r1")
+  // close tag appears but no proper open/close pair
+  let verdict = ra.parse_verdict(
+    "</needs_changes>content<needs_changes>",
+  )
+  // No valid tag extraction, falls to default
+  inspect(verdict, content="Approved")
+}

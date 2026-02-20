@@ -155,51 +155,58 @@ fn Orchestrator::assign_tasks(
   }
 }
 
+///| Run a single task on a backend and handle result/callbacks
+fn Orchestrator::run_task(
+  self : Orchestrator,
+  task : @types.Task,
+  description : String,
+  agent_id : String,
+) -> Unit {
+  (self.callbacks.on_task_start)(task.id, description, agent_id)
+  match self.backends.get(agent_id) {
+    Some(b) => {
+      let result = b.run(description, "", fn(event) {
+        match event {
+          @types.AgentEvent::OutputLine(line) =>
+            (self.callbacks.on_agent_output)(agent_id, line)
+          _ => ()
+        }
+      })
+      match result.status {
+        Completed => {
+          task.complete(result.content)
+          (self.callbacks.on_task_complete)(task.id, "done")
+          (self.callbacks.on_agent_complete)(agent_id, result.content)
+        }
+        Failed(err) => {
+          task.fail(err)
+          (self.callbacks.on_task_complete)(task.id, "failed: \{err}")
+        }
+        _ => ()
+      }
+    }
+    None => {
+      task.fail("Backend not found: \{agent_id}")
+      (self.callbacks.on_task_complete)(task.id, "failed: backend not found")
+    }
+  }
+}
+
 ///| Execute all assigned tasks
 fn Orchestrator::execute_tasks(
   self : Orchestrator,
   session : @types.Session,
 ) -> Unit {
   let total = session.tasks.length()
-  let mut done = 0
   for task in session.tasks {
     match task.status {
       InProgress(agent_id) => {
-        done += 1
-        (self.callbacks.on_task_start)(task.id, task.description, agent_id)
-        let backend = self.backends.get(agent_id)
-        match backend {
-          Some(b) => {
-            let result = b.run(task.description, "", fn(event) {
-              match event {
-                @types.AgentEvent::OutputLine(line) =>
-                  (self.callbacks.on_agent_output)(agent_id, line)
-                _ => ()
-              }
-            })
-            match result.status {
-              Completed => {
-                task.complete(result.content)
-                (self.callbacks.on_task_complete)(task.id, "done")
-                (self.callbacks.on_agent_complete)(agent_id, result.content)
-                (self.callbacks.on_info)(
-                  "Progress: \{done}/\{total} tasks completed",
-                )
-              }
-              Failed(err) => {
-                task.fail(err)
-                (self.callbacks.on_task_complete)(task.id, "failed: \{err}")
-              }
-              _ => ()
-            }
-          }
-          None => {
-            task.fail("Backend not found: \{agent_id}")
-            (self.callbacks.on_task_complete)(
-              task.id,
-              "failed: backend not found",
-            )
-          }
+        self.run_task(task, task.description, agent_id)
+        if task.is_done() {
+          let done = self.task_manager.completed_count()
+          (self.callbacks.on_info)(
+            "Progress: \{done}/\{total} tasks completed",
+          )
         }
       }
       _ => ()
@@ -212,17 +219,17 @@ fn Orchestrator::review_tasks(
   self : Orchestrator,
   session : @types.Session,
 ) -> Unit {
-  self.review_cycles += 1
-  (self.callbacks.on_info)(
-    "Review cycle \{self.review_cycles}/\{self.config.max_review_cycles}",
-  )
   match self.review_agent {
     Some(ra) => {
       let review_backend_id = self.find_review_backend_id()
       match review_backend_id {
         Some(bid) =>
           match self.backends.get(bid) {
-            Some(backend) =>
+            Some(backend) => {
+              self.review_cycles += 1
+              (self.callbacks.on_info)(
+                "Review cycle \{self.review_cycles}/\{self.config.max_review_cycles}",
+              )
               for task in session.tasks {
                 if task.is_done() && task.review is None {
                   (self.callbacks.on_review_start)(task.id, ra.reviewer_id)
@@ -230,6 +237,7 @@ fn Orchestrator::review_tasks(
                   (self.callbacks.on_review_complete)(task.id, review.verdict)
                 }
               }
+            }
             None =>
               (self.callbacks.on_info)(
                 "Review backend \{bid} not found, skipping review",
@@ -261,6 +269,14 @@ fn Orchestrator::iterate_tasks(
   self : Orchestrator,
   session : @types.Session,
 ) -> Unit {
+  let dev_backend = self.find_backend_for_role(@types.AgentRole::Dev)
+  let agent_id = match dev_backend {
+    Some((id, _)) => id
+    None => {
+      (self.callbacks.on_info)("No dev backend available for rework")
+      return
+    }
+  }
   for task in session.tasks {
     match task.review {
       Some(r) =>
@@ -269,54 +285,13 @@ fn Orchestrator::iterate_tasks(
             let feedback = items.iter().fold(init="", fn(acc, item) {
               acc + "- " + item + "\n"
             })
-            (self.callbacks.on_info)(
-              "Re-working \{task.id} with feedback",
-            )
+            (self.callbacks.on_info)("Re-working \{task.id} with feedback")
             let new_desc = "\{task.description}\n\nFeedback from review:\n\{feedback}"
             task.status = @types.TaskStatus::Pending
             task.result = None
             task.review = None
-            let mut agent_id = ""
-            for agent in session.agents {
-              if agent.role == Dev {
-                agent_id = agent.id
-                break
-              }
-            }
-            if not(agent_id.is_empty()) {
-              task.assign(agent_id)
-              (self.callbacks.on_task_start)(task.id, new_desc, agent_id)
-              match self.backends.get(agent_id) {
-                Some(b) => {
-                  let result = b.run(new_desc, "", fn(event) {
-                    match event {
-                      @types.AgentEvent::OutputLine(line) =>
-                        (self.callbacks.on_agent_output)(agent_id, line)
-                      _ => ()
-                    }
-                  })
-                  match result.status {
-                    Completed => {
-                      task.complete(result.content)
-                      (self.callbacks.on_task_complete)(task.id, "done")
-                      (self.callbacks.on_agent_complete)(
-                        agent_id,
-                        result.content,
-                      )
-                    }
-                    Failed(err) => {
-                      task.fail(err)
-                      (self.callbacks.on_task_complete)(
-                        task.id,
-                        "failed: \{err}",
-                      )
-                    }
-                    _ => ()
-                  }
-                }
-                None => ()
-              }
-            }
+            task.assign(agent_id)
+            self.run_task(task, new_desc, agent_id)
           }
           _ => ()
         }
@@ -338,10 +313,6 @@ fn Orchestrator::find_backend_for_role(
       }
     }
   }
-  for entry in self.backends {
-    let (id, b) = entry
-    return Some((id, b))
-  }
   None
 }
 
@@ -353,11 +324,4 @@ fn Orchestrator::find_review_backend_id(self : Orchestrator) -> String? {
     }
   }
   None
-}
-
-///| Get the task manager
-pub fn Orchestrator::get_task_manager(
-  self : Orchestrator,
-) -> @task.TaskManager {
-  self.task_manager
 }

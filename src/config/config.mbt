@@ -87,19 +87,15 @@ pub fn ProjectConfig::from_json_string(
 ///| Parse project config from Json value
 pub fn ProjectConfig::from_json(json : Json) -> ProjectConfig raise Failure {
   match json {
-    Object(_) => {
+    Object(map) => {
       let project_dir = get_string(json, "project_dir", ".")
       let review_dir = get_string(json, "review_dir", "docs/reviews")
       let max_review_cycles = get_int(json, "max_review_cycles", 3)
       let agents : Array[@types.AgentConfig] = []
-      match json {
-        Object(map) =>
-          match map.get("agents") {
-            Some(Array(arr)) =>
-              for item in arr {
-                agents.push(parse_agent_config(item))
-              }
-            _ => ()
+      match map.get("agents") {
+        Some(Array(arr)) =>
+          for item in arr {
+            agents.push(parse_agent_config(item))
           }
         _ => ()
       }
