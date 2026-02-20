@@ -116,10 +116,22 @@ fn load_config(config_path : String?) -> @config.ProjectConfig {
   }
 }
 
-///| Timestamped log
+///| Timestamped log with ANSI color coding by level
 fn log(level : String, msg : String) -> Unit {
   let ts = now_timestamp()
-  println("[\{ts}] [\{level}] \{msg}")
+  let color = match level {
+    "CALL" => "\u001b[90m"
+    "DONE" => "\u001b[36m"
+    "ERROR" => "\u001b[31m"
+    "WARN" => "\u001b[33m"
+    "HEARTBEAT" => "\u001b[1m"
+    _ => ""
+  }
+  if color.is_empty() {
+    println("[\{ts}] [\{level}] \{msg}")
+  } else {
+    println("\{color}[\{ts}] [\{level}] \{msg}\u001b[0m")
+  }
 }
 
 ///| Delegate to @display module
