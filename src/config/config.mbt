@@ -4,7 +4,16 @@ pub(all) struct ProjectConfig {
   review_dir : String
   max_review_cycles : Int
   agents : Array[@types.AgentConfig]
+  parse_warnings : Array[String]
 }
+
+///| Known valid agent kind strings
+let valid_agent_kinds : Array[String] = [
+  "claude-code", "codex", "api", "mock",
+]
+
+///| Known valid agent role strings
+let valid_agent_roles : Array[String] = ["dev", "review", "orchestrator"]
 
 ///| Parse AgentKind from string
 fn parse_agent_kind(s : String) -> @types.AgentKind {
@@ -62,11 +71,26 @@ fn get_string_opt(json : Json, key : String) -> String? {
   }
 }
 
-///| Parse a single agent config from JSON
-fn parse_agent_config(json : Json) -> @types.AgentConfig {
+///| Parse a single agent config from JSON, collecting warnings for unknown values
+fn parse_agent_config(
+  json : Json,
+  warnings : Array[String],
+) -> @types.AgentConfig {
   let id = get_string(json, "id", "")
-  let kind = parse_agent_kind(get_string(json, "kind", "mock"))
-  let role = parse_agent_role(get_string(json, "role", "dev"))
+  let kind_str = get_string(json, "kind", "mock")
+  if not(valid_agent_kinds.contains(kind_str)) {
+    warnings.push(
+      "Agent '\{id}': unknown kind '\{kind_str}', defaulting to Mock",
+    )
+  }
+  let kind = parse_agent_kind(kind_str)
+  let role_str = get_string(json, "role", "dev")
+  if not(valid_agent_roles.contains(role_str)) {
+    warnings.push(
+      "Agent '\{id}': unknown role '\{role_str}', defaulting to Dev",
+    )
+  }
+  let role = parse_agent_role(role_str)
   let model = get_string_opt(json, "model")
   let system_prompt = get_string_opt(json, "system_prompt")
   let working_dir = get_string(json, "working_dir", ".")
@@ -92,14 +116,15 @@ pub fn ProjectConfig::from_json(json : Json) -> ProjectConfig raise Failure {
       let review_dir = get_string(json, "review_dir", "docs/reviews")
       let max_review_cycles = get_int(json, "max_review_cycles", 3)
       let agents : Array[@types.AgentConfig] = []
+      let parse_warnings : Array[String] = []
       match map.get("agents") {
         Some(Array(arr)) =>
           for item in arr {
-            agents.push(parse_agent_config(item))
+            agents.push(parse_agent_config(item, parse_warnings))
           }
         _ => ()
       }
-      { project_dir, review_dir, max_review_cycles, agents }
+      { project_dir, review_dir, max_review_cycles, agents, parse_warnings }
     }
     _ => raise Failure::Failure("Config must be a JSON object")
   }
@@ -107,7 +132,13 @@ pub fn ProjectConfig::from_json(json : Json) -> ProjectConfig raise Failure {
 
 ///| Create a default config (empty agents)
 pub fn ProjectConfig::default() -> ProjectConfig {
-  { project_dir: ".", review_dir: "docs/reviews", max_review_cycles: 3, agents: [] }
+  {
+    project_dir: ".",
+    review_dir: "docs/reviews",
+    max_review_cycles: 3,
+    agents: [],
+    parse_warnings: [],
+  }
 }
 
 ///| Preset: dev=claude-code, review=codex
@@ -135,12 +166,17 @@ pub fn ProjectConfig::preset_default() -> ProjectConfig {
     review_dir: "docs/reviews",
     max_review_cycles: 2,
     agents: [dev, reviewer],
+    parse_warnings: [],
   }
 }
 
-///| Validate the config
+///| Validate the config. Returns errors and parse warnings.
 pub fn ProjectConfig::validate(self : ProjectConfig) -> Array[String] {
   let errors : Array[String] = []
+  // Include any parse warnings (unknown kind/role values)
+  for w in self.parse_warnings {
+    errors.push(w)
+  }
   if self.agents.is_empty() {
     errors.push("No agents configured")
   }

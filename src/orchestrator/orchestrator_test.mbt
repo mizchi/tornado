@@ -31,6 +31,7 @@ fn make_test_config() -> @config.ProjectConfig {
     review_dir: "docs/reviews",
     max_review_cycles: 3,
     agents: [dev_agent, review_agent],
+    parse_warnings: [],
   }
 }
 
@@ -81,6 +82,7 @@ test "Orchestrator without review agent" {
     review_dir: "docs/reviews",
     max_review_cycles: 3,
     agents: [dev_agent],
+    parse_warnings: [],
   }
   let dev_mock = @agent.MockBackend::new(
     default_response="1. Task A\n2. Task B",
@@ -186,6 +188,7 @@ test "Orchestrator handles missing backend for assigned task" {
     review_dir: "docs/reviews",
     max_review_cycles: 3,
     agents: [dev_agent],
+    parse_warnings: [],
   }
   // Register backend as "dev-1" for decompose, but task gets assigned to "dev-1"
   // and we remove it before execution
@@ -229,6 +232,7 @@ test "Orchestrator iteration respects max_review_cycles" {
     review_dir: "docs/reviews",
     max_review_cycles: 2,
     agents: [dev_agent, review_agent],
+    parse_warnings: [],
   }
   let dev_mock = @agent.MockBackend::new(default_response="task done")
   // Always returns needs_changes - never approves
