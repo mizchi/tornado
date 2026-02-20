@@ -4,6 +4,8 @@ pub(all) enum CliCommand {
     plan_path~ : String?,
     dev_kind~ : @types.AgentKind?,
     review_kind~ : @types.AgentKind?,
+    review_interval~ : Int?,
+    rlm~ : Bool,
     warnings~ : Array[String],
   )
   Validate(String?)
@@ -22,6 +24,8 @@ pub fn parse_cli_args(
       plan_path=None,
       dev_kind=None,
       review_kind=None,
+      review_interval=None,
+      rlm=false,
       warnings=[],
     )
   }
@@ -40,23 +44,26 @@ pub fn parse_cli_args(
   }
 }
 
-///| Apply --dev/--review kind overrides to config agents by role.
-pub fn apply_kind_overrides(
+///| Apply --dev/--review kind overrides and --review-interval to config.
+pub fn apply_overrides(
   config : @config.ProjectConfig,
-  dev_kind? : @types.AgentKind? = None,
-  review_kind? : @types.AgentKind? = None,
+  dev_kind~ : @types.AgentKind? = None,
+  review_kind~ : @types.AgentKind? = None,
+  review_interval~ : Int? = None,
 ) -> @config.ProjectConfig {
   let agents : Array[@types.AgentConfig] = []
   for agent in config.agents {
     let kind = match agent.role {
-      Dev => match dev_kind {
-        Some(k) => k
-        None => agent.kind
-      }
-      Review => match review_kind {
-        Some(k) => k
-        None => agent.kind
-      }
+      Dev =>
+        match dev_kind {
+          Some(k) => k
+          None => agent.kind
+        }
+      Review =>
+        match review_kind {
+          Some(k) => k
+          None => agent.kind
+        }
       _ => agent.kind
     }
     agents.push(
@@ -71,13 +78,27 @@ pub fn apply_kind_overrides(
       },
     )
   }
+  let ri = match review_interval {
+    Some(n) => n
+    None => config.review_interval
+  }
   {
     project_dir: config.project_dir,
     review_dir: config.review_dir,
     max_review_cycles: config.max_review_cycles,
+    review_interval: ri,
     agents,
     parse_warnings: config.parse_warnings,
   }
+}
+
+///| Backward-compatible alias
+pub fn apply_kind_overrides(
+  config : @config.ProjectConfig,
+  dev_kind~ : @types.AgentKind? = None,
+  review_kind~ : @types.AgentKind? = None,
+) -> @config.ProjectConfig {
+  apply_overrides(config, dev_kind~, review_kind~)
 }
 
 ///| Human-readable kind label for logs/usage.
@@ -98,6 +119,8 @@ fn parse_run_args(
   let mut plan_path : String? = None
   let mut dev_kind : @types.AgentKind? = None
   let mut review_kind : @types.AgentKind? = None
+  let mut review_interval : Int? = None
+  let mut rlm : Bool = false
   let warnings : Array[String] = []
 
   let mut i = 0
@@ -120,6 +143,24 @@ fn parse_run_args(
         Some(kind) => review_kind = Some(kind)
         None => warnings.push("Unknown --review kind: \{raw}")
       }
+      i += 1
+      continue
+    }
+
+    if token.has_prefix("--review-interval=") {
+      let raw = token
+        .view(start_offset="--review-interval=".length())
+        .to_string()
+      match parse_positive_int(raw) {
+        Some(n) => review_interval = Some(n)
+        None => warnings.push("Invalid --review-interval value: \{raw}")
+      }
+      i += 1
+      continue
+    }
+
+    if token == "--rlm" {
+      rlm = true
       i += 1
       continue
     }
@@ -173,7 +214,7 @@ fn parse_run_args(
     i += 1
   }
 
-  Run(config_path~, plan_path~, dev_kind~, review_kind~, warnings~)
+  Run(config_path~, plan_path~, dev_kind~, review_kind~, review_interval~, rlm~, warnings~)
 }
 
 fn parse_kind_alias(raw : String) -> @types.AgentKind? {
@@ -184,6 +225,24 @@ fn parse_kind_alias(raw : String) -> @types.AgentKind? {
     "mock" => Some(Mock)
     _ => None
   }
+}
+
+fn parse_positive_int(s : String) -> Int? {
+  if s.is_empty() {
+    return None
+  }
+  let mut result = 0
+  for ch in s {
+    if ch >= '0' && ch <= '9' {
+      result = result * 10 + (ch.to_int() - '0'.to_int())
+    } else {
+      return None
+    }
+  }
+  if result < 1 {
+    return None
+  }
+  Some(result)
 }
 
 fn drop_prefix(args : Array[String], start : Int) -> Array[String] {

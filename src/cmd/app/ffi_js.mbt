@@ -117,6 +117,15 @@ extern "js" fn js_sleep_ms(ms : Int) -> Unit =
   #|  Atomics.wait(new Int32Array(sab), 0, 0, ms);
   #|}
 
+///| Print string to stdout without trailing newline (for streaming output)
+pub fn print_inline(s : String) -> Unit {
+  js_print_inline(s)
+}
+
+///|
+extern "js" fn js_print_inline(s : String) -> Unit =
+  #|(s) => { process.stdout.write(s); }
+
 ///| Get current timestamp as "HH:MM:SS" string
 pub fn now_timestamp() -> String {
   js_now_timestamp()

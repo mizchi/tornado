@@ -30,6 +30,7 @@ fn make_test_config() -> @config.ProjectConfig {
     project_dir: ".",
     review_dir: "docs/reviews",
     max_review_cycles: 3,
+    review_interval: 1,
     agents: [dev_agent, review_agent],
     parse_warnings: [],
   }
@@ -81,6 +82,7 @@ test "Orchestrator without review agent" {
     project_dir: ".",
     review_dir: "docs/reviews",
     max_review_cycles: 3,
+    review_interval: 1,
     agents: [dev_agent],
     parse_warnings: [],
   }
@@ -187,6 +189,7 @@ test "Orchestrator handles missing backend for assigned task" {
     project_dir: ".",
     review_dir: "docs/reviews",
     max_review_cycles: 3,
+    review_interval: 1,
     agents: [dev_agent],
     parse_warnings: [],
   }
@@ -231,6 +234,7 @@ test "Orchestrator iteration respects max_review_cycles" {
     project_dir: ".",
     review_dir: "docs/reviews",
     max_review_cycles: 2,
+    review_interval: 1,
     agents: [dev_agent, review_agent],
     parse_warnings: [],
   }
@@ -277,6 +281,7 @@ test "Orchestrator rework preserves review data across cycles" {
     project_dir: ".",
     review_dir: "docs/reviews",
     max_review_cycles: 2,
+    review_interval: 1,
     agents: [dev_agent, review_agent],
     parse_warnings: [],
   }

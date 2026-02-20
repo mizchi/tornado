@@ -11,13 +11,23 @@ fn main {
       plan_path=plan_path,
       dev_kind=dev_kind,
       review_kind=review_kind,
+      review_interval=review_interval,
+      rlm=rlm,
       warnings=warnings,
     ) => {
       for w in warnings {
         log("WARN", w)
       }
       let initial_task = load_plan_task(plan_path)
-      run_repl(config_path, initial_task, dev_kind, review_kind)
+      run_repl(
+        config_path,
+        plan_path,
+        rlm,
+        initial_task,
+        dev_kind,
+        review_kind,
+        review_interval,
+      )
     }
     @cli.CliCommand::Validate(path) =>
       match path {
@@ -43,9 +53,15 @@ fn print_usage() -> Unit {
     "  tornado                    # start with preset (dev:claude-code, review:codex)",
   )
   println("  tornado --dev=codex --review=claude")
+  println("  tornado --review-interval=3          # review every 3 dev iterations")
+  println("  tornado --rlm TODO.md                # improvement loop mode")
   println("  tornado validate <config>  # validate config file")
   println("")
   println("Agent kind options: claude | claude-code | codex | api | mock")
+  println("")
+  println("Options:")
+  println("  --review-interval=N  Run N dev iterations per review (default: 1)")
+  println("  --rlm                Enable improvement loop mode (measure→improve→verify→commit/revert)")
   println("")
   println("Autonomous heartbeat: dev runs → reviewer reviews →")
   println("dev continues with next task → forever until Ctrl+C.")
@@ -60,6 +76,7 @@ fn is_existing_file(path : String) -> Bool {
 fn load_plan_task(plan_path : String?) -> String? {
   match plan_path {
     Some(path) => {
+      // Verify the file exists and is readable
       let content = read_file_sync(path)
       if content.has_prefix("ERROR:") {
         log("WARN", "Failed to read plan file \{path}: \{content}")
@@ -68,8 +85,8 @@ fn load_plan_task(plan_path : String?) -> String? {
         log("WARN", "Plan file is empty: \{path}")
         None
       } else {
-        log("BOOT", "Loaded plan file: \{path}")
-        Some(content)
+        log("BOOT", "Using plan file: \{path}")
+        Some(build_plan_file_task(path, ""))
       }
     }
     None => None
@@ -141,6 +158,7 @@ fn run_validate(config_path : String) -> Unit {
     println("  project_dir: \{config.project_dir}")
     println("  review_dir: \{config.review_dir}")
     println("  max_review_cycles: \{config.max_review_cycles}")
+    println("  review_interval: \{config.review_interval}")
     println("  agents: \{config.agents.length()}")
     for agent in config.agents {
       println("    - \{agent.id} (\{agent.kind}, \{agent.role})")
@@ -163,6 +181,8 @@ struct SessionState {
   dev_output : String
   review_summary : String
   agent_sessions : Map[String, String]
+  dev_since_review : Int
+  accumulated_dev_outputs : Array[String]
 }
 
 ///| Save session state to .tornado/session.json
@@ -178,6 +198,8 @@ fn save_session(state : SessionState) -> Unit {
   obj["dev_output"] = state.dev_output.to_json()
   obj["review_summary"] = state.review_summary.to_json()
   obj["agent_sessions"] = Json::object(sessions_map)
+  obj["dev_since_review"] = state.dev_since_review.to_json()
+  obj["accumulated_dev_outputs"] = state.accumulated_dev_outputs.to_json()
   let json = Json::object(obj)
   ignore(exec_sync("mkdir -p .tornado"))
   write_file_sync(session_file, json.stringify())
@@ -223,7 +245,33 @@ fn load_session() -> SessionState? {
           }
         _ => ()
       }
-      Some({ iteration, phase, task, dev_output, review_summary, agent_sessions })
+      let dev_since_review = match map.get("dev_since_review") {
+        Some(Number(n, ..)) => n.to_int()
+        _ => 0
+      }
+      let accumulated_dev_outputs : Array[String] = []
+      match map.get("accumulated_dev_outputs") {
+        Some(Array(arr)) =>
+          for item in arr {
+            match item {
+              String(s) => accumulated_dev_outputs.push(s)
+              _ => ()
+            }
+          }
+        _ => ()
+      }
+      Some(
+        {
+          iteration,
+          phase,
+          task,
+          dev_output,
+          review_summary,
+          agent_sessions,
+          dev_since_review,
+          accumulated_dev_outputs,
+        },
+      )
     }
     _ => None
   }
@@ -283,6 +331,186 @@ fn build_initial_task_from_todos() -> String {
   buf.to_string()
 }
 
+// ── Plan file task builder ───────────────────────────────────
+
+///| Derive archive path: "TODO.md" → "TODO.archive.md", "plan" → "plan.archive.md"
+fn derive_archive_path(plan_path : String) -> String {
+  if plan_path.has_suffix(".md") && plan_path.length() > 3 {
+    let buf = StringBuilder::new()
+    let mut i = 0
+    let stop = plan_path.length() - 3
+    for ch in plan_path {
+      if i >= stop {
+        break
+      }
+      buf.write_char(ch)
+      i += 1
+    }
+    buf.write_string(".archive.md")
+    buf.to_string()
+  } else {
+    plan_path + ".archive.md"
+  }
+}
+
+///| Build a task prompt that directs the agent to read/write the plan file
+fn build_plan_file_task(plan_path : String, review_summary : String) -> String {
+  let context = gather_review_context()
+  let buf = StringBuilder::new()
+  buf.write_string(
+    "You are in an autonomous development loop.\n\n",
+  )
+  buf.write_string("## Plan File: \{plan_path}\n")
+  buf.write_string("Read this file to see your current task list.\n\n")
+  buf.write_string("## Instructions\n")
+  buf.write_string("1. Read `\{plan_path}` to understand the current tasks\n")
+  buf.write_string(
+    "2. Pick the highest-priority uncompleted task and implement it\n",
+  )
+  buf.write_string(
+    "3. After completing work, update `\{plan_path}` to mark the task as done\n",
+  )
+  // Derive archive path: foo.md → foo.archive.md, other → other.archive.md
+  let archive_path = derive_archive_path(plan_path)
+  buf.write_string(
+    "4. If the file has many completed items (10+), archive them to `\{archive_path}`\n\n",
+  )
+  if not(review_summary.is_empty()) {
+    buf.write_string("## Review Feedback\n")
+    buf.write_string(truncate(review_summary, 2000))
+    buf.write_string("\n\n")
+  }
+  if not(context.is_empty()) {
+    buf.write_string("## Current Project State\n")
+    buf.write_string(context)
+  }
+  buf.to_string()
+}
+
+// ── Join accumulated dev outputs ─────────────────────────────
+
+///| Combine multiple dev outputs into a structured summary
+fn join_dev_outputs(outputs : Array[String]) -> String {
+  let buf = StringBuilder::new()
+  let mut i = 0
+  for output in outputs {
+    i += 1
+    buf.write_string("### Dev Iteration \{i}\n")
+    buf.write_string(output)
+    buf.write_string("\n\n")
+  }
+  buf.to_string()
+}
+
+// ── Improvement loop task builder (RLM) ─────────────────────
+
+///| Build improvement loop prompt for --rlm mode
+fn build_improvement_task(
+  prev_output : String,
+  current_step : Int,
+  total_steps : Int,
+  cycle_summary~ : String = "",
+) -> String {
+  let context = gather_review_context()
+  let buf = StringBuilder::new()
+  buf.write_string("You are in an autonomous IMPROVEMENT loop.\n")
+  buf.write_string(
+    "Budget: iteration \{current_step}/\{total_steps} before next review.\n\n",
+  )
+  if not(cycle_summary.is_empty()) {
+    buf.write_string("## Previous Cycle Summary\n")
+    buf.write_string(cycle_summary)
+    buf.write_string("\n\n")
+  }
+  if not(context.is_empty()) {
+    buf.write_string("## Current Project State\n")
+    buf.write_string(context)
+    buf.write_string("\n")
+  }
+  if not(prev_output.is_empty()) {
+    buf.write_string("## Previous Iteration Output\n")
+    buf.write_string(truncate(prev_output, 2000))
+    buf.write_string("\n\n")
+  }
+  buf.write_string("## Improvement Protocol\n")
+  buf.write_string(
+    "1. **Measure Baseline**: Run tests, record pass/fail counts, build status, coverage\n",
+  )
+  buf.write_string(
+    "2. **Make ONE Focused Improvement**: Choose exactly one of: fix / test / refactor / optimize\n",
+  )
+  buf.write_string(
+    "3. **Validate**: Re-run tests, compare with baseline. No regression + improvement = ACCEPTABLE\n",
+  )
+  buf.write_string(
+    "4. **Commit or Revert**: If acceptable, commit with descriptive message. Otherwise `git checkout .`\n",
+  )
+  buf.write_string("5. **Report**: Output a structured summary in this format:\n\n")
+  buf.write_string("```\n")
+  buf.write_string("IMPROVEMENT_REPORT:\n")
+  buf.write_string("  type: <fix|test|refactor|optimize>\n")
+  buf.write_string("  baseline: tests=N/N, build=ok|fail\n")
+  buf.write_string("  result: tests=N/N, build=ok|fail\n")
+  buf.write_string("  verdict: committed|reverted\n")
+  buf.write_string("  summary: <one-line description of what changed>\n")
+  buf.write_string("```\n")
+  buf.to_string()
+}
+
+// ── Cycle summary builder ────────────────────────────────────
+
+///| Build a human-readable summary of what happened in this cycle
+fn build_cycle_summary(
+  iteration : Int,
+  dev_outputs : Array[String],
+  review_summary : String,
+) -> String {
+  let buf = StringBuilder::new()
+  buf.write_string("## Cycle \{iteration} Summary\n\n")
+  let mut i = 0
+  for output in dev_outputs {
+    i += 1
+    buf.write_string("### Dev Step \{i}\n")
+    buf.write_string(truncate(output, 1000))
+    buf.write_string("\n\n")
+  }
+  if not(review_summary.is_empty()) {
+    buf.write_string("### Review\n")
+    buf.write_string(truncate(review_summary, 500))
+    buf.write_string("\n")
+  }
+  buf.to_string()
+}
+
+// ── Next task router ─────────────────────────────────────────
+
+///| Build the next dev task based on plan/rlm mode
+fn build_next_task(
+  plan_path : String?,
+  rlm : Bool,
+  review_summary : String,
+  prev_output : String,
+  current_step~ : Int = 1,
+  total_steps~ : Int = 1,
+  cycle_summary~ : String = "",
+) -> String {
+  match (plan_path, rlm) {
+    (Some(path), true) => {
+      let base = build_plan_file_task(path, review_summary)
+      let improvement = build_improvement_task(
+        prev_output, current_step, total_steps, cycle_summary~,
+      )
+      base + "\n\n" + improvement
+    }
+    (Some(path), false) => build_plan_file_task(path, review_summary)
+    (None, true) =>
+      build_improvement_task(
+        prev_output, current_step, total_steps, cycle_summary~,
+      )
+    (None, false) => build_continuation_task(prev_output, review_summary)
+  }
+}
+
 // ── Continuation task builder ────────────────────────────────
 
 ///| Build a continuation task for the dev agent after review approval
@@ -327,15 +555,19 @@ fn build_continuation_task(
 ///| Autonomous loop: task → dev → review → continue
 fn run_repl(
   config_path : String?,
+  plan_path : String?,
+  rlm : Bool,
   initial_task : String?,
   dev_kind : @types.AgentKind?,
   review_kind : @types.AgentKind?,
+  review_interval : Int?,
 ) -> Unit {
   let loaded_config = load_config(config_path)
-  let config = @cli.apply_kind_overrides(
+  let config = @cli.apply_overrides(
     loaded_config,
-    dev_kind=dev_kind,
-    review_kind=review_kind,
+    dev_kind~,
+    review_kind~,
+    review_interval~,
   )
   println("")
   println("  tornado - autonomous development orchestrator")
@@ -353,6 +585,10 @@ fn run_repl(
     log("BOOT", "  \{agent.id} (\{agent.kind}, \{agent.role})")
   }
   log("BOOT", "Max review cycles: \{config.max_review_cycles}")
+  log("BOOT", "Review interval: every \{config.review_interval} dev iteration(s)")
+  if rlm {
+    log("BOOT", "RLM improvement loop mode: enabled")
+  }
   println("")
   let backends = @agent.create_backends(config.agents)
   let dev_id = find_agent_id(config.agents, @types.AgentRole::Dev)
@@ -361,6 +597,9 @@ fn run_repl(
   let mut iteration = 0
   let mut next_task : String = ""
   let mut last_review_summary : String = ""
+  let mut dev_since_review = 0
+  let accumulated_dev_outputs : Array[String] = []
+  let mut last_cycle_summary : String = ""
   // ── Token usage tracking ──
   let mut total_input_tokens = 0
   let mut total_output_tokens = 0
@@ -388,13 +627,22 @@ fn run_repl(
           restore_sessions(backends, agent_sessions)
           iteration = saved.iteration
           last_review_summary = saved.review_summary
+          dev_since_review = saved.dev_since_review
+          for output in saved.accumulated_dev_outputs {
+            accumulated_dev_outputs.push(output)
+          }
           match saved.phase {
             "dev" | "review" => next_task = saved.task
             _ => {
               // idle → previous iteration done, build continuation
-              next_task = build_continuation_task(
-                saved.task, saved.review_summary,
-              )
+              next_task = match plan_path {
+                Some(path) =>
+                  build_plan_file_task(path, saved.review_summary)
+                None =>
+                  build_continuation_task(
+                    saved.task, saved.review_summary,
+                  )
+              }
             }
           }
         }
@@ -451,6 +699,8 @@ fn run_repl(
         dev_output: "",
         review_summary: last_review_summary,
         agent_sessions,
+        dev_since_review,
+        accumulated_dev_outputs,
       },
     )
     // Per-iteration usage tracking
@@ -476,6 +726,8 @@ fn run_repl(
     let dev_result = run_dev(
       dev_id, backends, next_task, agent_sessions, on_usage~,
     )
+    dev_since_review += 1
+    accumulated_dev_outputs.push(truncate(dev_result, 5000))
     // ── Check for user interrupt after dev ──
     let post_dev_interrupt = check_interrupt()
     if not(post_dev_interrupt.is_empty()) {
@@ -484,8 +736,7 @@ fn run_repl(
         "User instructions for review: \{truncate(post_dev_interrupt, 100)}",
       )
     }
-    // ── review phase ──
-    // Skip review if dev produced no output (likely failed)
+    // ── Skip review if dev produced no output (likely failed) ──
     if dev_result.trim().is_empty() {
       log("HEARTBEAT", "Dev produced no output, skipping review")
       last_review_summary = "Dev agent produced no output - likely failed"
@@ -497,10 +748,64 @@ fn run_repl(
           dev_output: dev_result,
           review_summary: last_review_summary,
           agent_sessions,
+          dev_since_review,
+          accumulated_dev_outputs,
         },
       )
       continue
     }
+    // ── review_interval check: only review after N dev iterations ──
+    if dev_since_review < config.review_interval {
+      log(
+        "HEARTBEAT",
+        "Dev \{dev_since_review}/\{config.review_interval} before review",
+      )
+      log("SUMMARY", "Dev output: \{truncate(dev_result, 300)}")
+      log("HEARTBEAT", "=== Iteration \{iteration} complete (no review) ===")
+      log(
+        "USAGE",
+        "Iter \{iteration}: \{iter_input_tokens}in/\{iter_output_tokens}out (cache: \{iter_cache_read}r/\{iter_cache_write}w), $\{iter_cost_usd}",
+      )
+      log(
+        "USAGE",
+        "Total: \{total_input_tokens}in/\{total_output_tokens}out (cache: \{total_cache_read}r/\{total_cache_write}w), $\{total_cost_usd}",
+      )
+      save_session(
+        {
+          iteration,
+          phase: "idle",
+          task: next_task,
+          dev_output: dev_result,
+          review_summary: last_review_summary,
+          agent_sessions,
+          dev_since_review,
+          accumulated_dev_outputs,
+        },
+      )
+      // Build next task without review feedback
+      let user_input = check_interrupt()
+      if not(user_input.is_empty()) {
+        log("USER", "Using user instructions: \{truncate(user_input, 100)}")
+        next_task = user_input
+      } else {
+        next_task = build_next_task(
+          plan_path,
+          rlm,
+          "",
+          dev_result,
+          current_step=dev_since_review,
+          total_steps=config.review_interval,
+          cycle_summary=last_cycle_summary,
+        )
+      }
+      if not(post_dev_interrupt.is_empty()) {
+        next_task = next_task + "\n\n## Additional Instructions from User\n" +
+          post_dev_interrupt
+      }
+      continue
+    }
+    // ── review phase ──
+    let combined_dev_output = join_dev_outputs(accumulated_dev_outputs)
     save_session(
       {
         iteration,
@@ -509,6 +814,8 @@ fn run_repl(
         dev_output: dev_result,
         review_summary: last_review_summary,
         agent_sessions,
+        dev_since_review,
+        accumulated_dev_outputs,
       },
     )
     let review_result = match reviewer_id {
@@ -518,7 +825,7 @@ fn run_repl(
           rid,
           backends,
           next_task,
-          dev_result,
+          combined_dev_output,
           config.max_review_cycles,
           agent_sessions,
           on_usage~,
@@ -528,6 +835,19 @@ fn run_repl(
         ReviewOutcome::Approved("")
       }
     }
+    // ── Build cycle summary before clearing ──
+    let review_text = match review_result {
+      Approved(s) => s
+      Rejected(s) => s
+    }
+    let cycle_summary = build_cycle_summary(
+      iteration, accumulated_dev_outputs, review_text,
+    )
+    last_cycle_summary = cycle_summary
+    log("SUMMARY", truncate(cycle_summary, 500))
+    // Reset accumulated state after review
+    dev_since_review = 0
+    accumulated_dev_outputs.clear()
     // ── determine next task ──
     match review_result {
       Approved(summary) => {
@@ -540,6 +860,8 @@ fn run_repl(
             dev_output: dev_result,
             review_summary: summary,
             agent_sessions,
+            dev_since_review,
+            accumulated_dev_outputs,
           },
         )
         log("HEARTBEAT", "=== Iteration \{iteration} complete ===")
@@ -557,9 +879,11 @@ fn run_repl(
           log("USER", "Using user instructions: \{truncate(user_input, 100)}")
           next_task = user_input
         } else {
-          // Auto-continue: build continuation task for dev
+          // Auto-continue: build next task for dev
           log("HEARTBEAT", "Building next task from project state...")
-          next_task = build_continuation_task(next_task, summary)
+          next_task = build_next_task(
+            plan_path, rlm, summary, dev_result, cycle_summary=cycle_summary,
+          )
         }
         // Also apply any post-dev interrupt that wasn't consumed
         if not(post_dev_interrupt.is_empty()) {
@@ -577,6 +901,8 @@ fn run_repl(
             dev_output: dev_result,
             review_summary: reason,
             agent_sessions,
+            dev_since_review,
+            accumulated_dev_outputs,
           },
         )
         log("HEARTBEAT", "=== Iteration \{iteration} complete (REJECTED) ===")
@@ -666,32 +992,84 @@ fn run_dev(
         None => log("DEV", "Starting \{id} (new session)...")
       }
       println("")
+      let line_active = [false]
       let result = backend.run(task, "", fn(event) {
         match event {
-          @types.AgentEvent::OutputLine(line) =>
-            println("  [\{id}] \{truncate(line, 140)}")
-          @types.AgentEvent::Info(msg) =>
+          @types.AgentEvent::OutputLine(text) => {
+            let buf = StringBuilder::new()
+            for ch in text {
+              if not(line_active[0]) {
+                buf.write_string("  [\{id}] ")
+                line_active[0] = true
+              }
+              if ch == '\n' {
+                buf.write_char('\n')
+                line_active[0] = false
+              } else {
+                buf.write_char(ch)
+              }
+            }
+            let s = buf.to_string()
+            if not(s.is_empty()) {
+              print_inline(s)
+            }
+          }
+          @types.AgentEvent::Info(msg) => {
+            if line_active[0] {
+              print_inline("\n")
+              line_active[0] = false
+            }
             log("INFO", "\{id}: \{msg}")
-          @types.AgentEvent::ToolCall(name=tool_name, input=tool_input) =>
+          }
+          @types.AgentEvent::ToolCall(name=tool_name, input=tool_input) => {
+            if line_active[0] {
+              print_inline("\n")
+              line_active[0] = false
+            }
             log("CALL", "\{id} \{format_tool_call(tool_name, tool_input)}")
-          @types.AgentEvent::ToolResult(name=tool_name, output=tool_output) =>
+          }
+          @types.AgentEvent::ToolResult(name=tool_name, output=tool_output) => {
+            if line_active[0] {
+              print_inline("\n")
+              line_active[0] = false
+            }
             log(
               "DONE",
               "\{id} \{format_tool_result(tool_name, tool_output)}",
             )
+          }
           @types.AgentEvent::SubAgentStart(
             agent_type=agent_type,
             task=desc,
-          ) =>
+          ) => {
+            if line_active[0] {
+              print_inline("\n")
+              line_active[0] = false
+            }
             log(
               "AGENT",
               "\{id} spawned \{agent_type}: \{truncate(desc, 80)}",
             )
-          @types.AgentEvent::SubAgentEnd(agent_type=agent_type) =>
+          }
+          @types.AgentEvent::SubAgentEnd(agent_type=agent_type) => {
+            if line_active[0] {
+              print_inline("\n")
+              line_active[0] = false
+            }
             log("AGENT", "\{id} \{agent_type} completed")
-          @types.AgentEvent::StatusChange(status) =>
+          }
+          @types.AgentEvent::StatusChange(status) => {
+            if line_active[0] {
+              print_inline("\n")
+              line_active[0] = false
+            }
             log("DEV", "\{id} -> \{status}")
+          }
           @types.AgentEvent::SessionId(sid) => {
+            if line_active[0] {
+              print_inline("\n")
+              line_active[0] = false
+            }
             agent_sessions[id] = sid
             log("DEV", "\{id} session: \{sid}")
           }
@@ -704,6 +1082,9 @@ fn run_dev(
           ) => on_usage(it, ot, cr, cw, cost)
         }
       })
+      if line_active[0] {
+        print_inline("\n")
+      }
       println("")
       match result.status {
         Completed => {

@@ -3,6 +3,7 @@ pub(all) struct ProjectConfig {
   project_dir : String
   review_dir : String
   max_review_cycles : Int
+  review_interval : Int
   agents : Array[@types.AgentConfig]
   parse_warnings : Array[String]
 }
@@ -115,6 +116,7 @@ pub fn ProjectConfig::from_json(json : Json) -> ProjectConfig raise Failure {
       let project_dir = get_string(json, "project_dir", ".")
       let review_dir = get_string(json, "review_dir", "docs/reviews")
       let max_review_cycles = get_int(json, "max_review_cycles", 3)
+      let review_interval = get_int(json, "review_interval", 1)
       let agents : Array[@types.AgentConfig] = []
       let parse_warnings : Array[String] = []
       match map.get("agents") {
@@ -124,7 +126,14 @@ pub fn ProjectConfig::from_json(json : Json) -> ProjectConfig raise Failure {
           }
         _ => ()
       }
-      { project_dir, review_dir, max_review_cycles, agents, parse_warnings }
+      {
+        project_dir,
+        review_dir,
+        max_review_cycles,
+        review_interval,
+        agents,
+        parse_warnings,
+      }
     }
     _ => raise Failure::Failure("Config must be a JSON object")
   }
@@ -136,6 +145,7 @@ pub fn ProjectConfig::default() -> ProjectConfig {
     project_dir: ".",
     review_dir: "docs/reviews",
     max_review_cycles: 3,
+    review_interval: 1,
     agents: [],
     parse_warnings: [],
   }
@@ -165,6 +175,7 @@ pub fn ProjectConfig::preset_default() -> ProjectConfig {
     project_dir: ".",
     review_dir: "docs/reviews",
     max_review_cycles: 2,
+    review_interval: 1,
     agents: [dev, reviewer],
     parse_warnings: [],
   }
@@ -176,6 +187,9 @@ pub fn ProjectConfig::validate(self : ProjectConfig) -> Array[String] {
   // Include any parse warnings (unknown kind/role values)
   for w in self.parse_warnings {
     errors.push(w)
+  }
+  if self.review_interval < 1 {
+    errors.push("review_interval must be >= 1, got \{self.review_interval}")
   }
   if self.agents.is_empty() {
     errors.push("No agents configured")

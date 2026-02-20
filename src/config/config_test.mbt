@@ -30,6 +30,7 @@ test "ProjectConfig::from_json_string with defaults" {
   inspect(config.project_dir, content=".")
   inspect(config.review_dir, content="docs/reviews")
   inspect(config.max_review_cycles, content="3")
+  inspect(config.review_interval, content="1")
 }
 
 test "ProjectConfig::default" {
@@ -151,6 +152,31 @@ test "valid kind and role produce no warnings" {
     #|}
   let config = @config.ProjectConfig::from_json_string(json)
   assert_true(config.parse_warnings.is_empty())
+}
+
+test "ProjectConfig::from_json_string parses review_interval" {
+  let json =
+    #|{
+    #|  "review_interval": 3,
+    #|  "agents": [
+    #|    { "id": "dev-1", "kind": "claude-code", "role": "dev" }
+    #|  ]
+    #|}
+  let config = @config.ProjectConfig::from_json_string(json)
+  inspect(config.review_interval, content="3")
+}
+
+test "ProjectConfig::validate rejects review_interval < 1" {
+  let json =
+    #|{
+    #|  "review_interval": 0,
+    #|  "agents": [
+    #|    { "id": "dev-1", "kind": "claude-code", "role": "dev" }
+    #|  ]
+    #|}
+  let config = @config.ProjectConfig::from_json_string(json)
+  let errors = config.validate()
+  assert_true(errors.iter().any(fn(e) { e.contains("review_interval") }))
 }
 
 test "valid config parse_warnings is empty" {
