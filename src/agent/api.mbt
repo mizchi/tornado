@@ -23,7 +23,7 @@ pub fn ApiBackend::openai(
 
 ///| Create an ApiBackend from a BoxedProvider
 pub fn ApiBackend::from_provider(provider : @llm.BoxedProvider) -> ApiBackend {
-  { provider }
+  { provider, }
 }
 
 ///| AgentBackend implementation for ApiBackend

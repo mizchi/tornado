@@ -1,5 +1,4 @@
 // ── Session state file: .tornado/session.json ──
-// Persisted after each phase so that resume works even if killed mid-task.
 
 let session_file : String = ".tornado/session.json"
 
@@ -43,12 +42,9 @@ fn print_usage() -> Unit {
   println("  tornado run <config.json>  # start with custom config")
   println("  tornado validate <config>  # validate config file")
   println("")
-  println("Session is auto-saved to .tornado/session.json.")
-  println("On restart, you will be prompted to resume or start fresh.")
-  println("")
-  println("Heartbeat mode: after each review, the reviewer suggests the")
-  println("next task and dev automatically continues. Ctrl+C to stop.")
-  println("Type a task to start, 'quit' to exit.")
+  println("Autonomous heartbeat: dev runs → reviewer reviews →")
+  println("dev continues with next task → forever until Ctrl+C.")
+  println("Session auto-saved to .tornado/session.json for resume.")
 }
 
 ///| Load config from file, or use preset
@@ -82,8 +78,7 @@ fn log(level : String, msg : String) -> Unit {
 
 ///| Truncate long text for display
 fn truncate(s : String, max : Int) -> String {
-  let chars = s.to_array()
-  if chars.length() <= max {
+  if s.length() <= max {
     s
   } else {
     s.view(start_offset=0, end_offset=max).to_string() + "..."
@@ -131,7 +126,8 @@ struct SessionState {
   phase : String // "dev" | "review" | "idle"
   task : String
   dev_output : String
-  agent_sessions : Map[String, String] // agent_id -> session_id
+  review_summary : String
+  agent_sessions : Map[String, String]
 }
 
 ///| Save session state to .tornado/session.json
@@ -145,13 +141,14 @@ fn save_session(state : SessionState) -> Unit {
   obj["phase"] = state.phase.to_json()
   obj["task"] = state.task.to_json()
   obj["dev_output"] = state.dev_output.to_json()
+  obj["review_summary"] = state.review_summary.to_json()
   obj["agent_sessions"] = Json::object(sessions_map)
   let json = Json::object(obj)
   ignore(exec_sync("mkdir -p .tornado"))
   write_file_sync(session_file, json.stringify())
 }
 
-///| Load session state from disk, None if not found
+///| Load session state from disk
 fn load_session() -> SessionState? {
   let content = read_file_sync(session_file)
   if content.has_prefix("ERROR:") {
@@ -161,7 +158,7 @@ fn load_session() -> SessionState? {
   match json {
     Object(map) => {
       let iteration = match map.get("iteration") {
-        Some(Number(n)) => n.to_int()
+        Some(Number(n, ..)) => n.to_int()
         _ => 0
       }
       let phase = match map.get("phase") {
@@ -176,6 +173,10 @@ fn load_session() -> SessionState? {
         Some(String(s)) => s
         _ => ""
       }
+      let review_summary = match map.get("review_summary") {
+        Some(String(s)) => s
+        _ => ""
+      }
       let agent_sessions : Map[String, String] = {}
       match map.get("agent_sessions") {
         Some(Object(sessions)) =>
@@ -187,7 +188,7 @@ fn load_session() -> SessionState? {
           }
         _ => ()
       }
-      Some({ iteration, phase, task, dev_output, agent_sessions })
+      Some({ iteration, phase, task, dev_output, review_summary, agent_sessions })
     }
     _ => None
   }
@@ -198,33 +199,74 @@ fn clear_session() -> Unit {
   ignore(exec_sync("rm -f \{session_file}"))
 }
 
-// ── REPL + Heartbeat loop ──────────────────────────────────
+// ── Continuation task builder ────────────────────────────────
 
-///| Main loop: prompt → dev → review → auto-continue
+///| Build a continuation task for the dev agent after review approval
+fn build_continuation_task(
+  prev_task : String,
+  review_summary : String,
+) -> String {
+  let context = gather_review_context()
+  let buf = StringBuilder::new()
+  buf.write_string(
+    "You are in an autonomous development loop. Your job is to continuously improve this project.\n\n",
+  )
+  if not(context.is_empty()) {
+    buf.write_string("## Current Project State\n")
+    buf.write_string(context)
+    buf.write_string("\n")
+  }
+  buf.write_string("## Previous Task (completed)\n")
+  buf.write_string(prev_task)
+  buf.write_string("\n\n")
+  if not(review_summary.is_empty()) {
+    buf.write_string("## Review Feedback\n")
+    buf.write_string(truncate(review_summary, 2000))
+    buf.write_string("\n\n")
+  }
+  buf.write_string("## Your Task\n")
+  buf.write_string(
+    "Based on the current project state above (git log, uncommitted changes, previous work), ",
+  )
+  buf.write_string("identify and implement the single most impactful improvement. ")
+  buf.write_string("This could be: fixing bugs, adding tests, improving error handling, ")
+  buf.write_string("refactoring, documentation, or implementing a missing feature.\n\n")
+  buf.write_string(
+    "Look at the actual codebase files, run tests, and make concrete changes. ",
+  )
+  buf.write_string("Do not just describe what to do — actually do it.\n")
+  buf.to_string()
+}
+
+// ── REPL + Autonomous heartbeat ──────────────────────────────
+
+///| Autonomous loop: task → dev → review → continue
 fn run_repl(config_path : String?) -> Unit {
   let config = load_config(config_path)
   println("")
-  println("  tornado - multi-agent development orchestrator")
+  println("  tornado - autonomous development orchestrator")
   println("")
   log("BOOT", "Agents:")
   for agent in config.agents {
     log("BOOT", "  \{agent.id} (\{agent.kind}, \{agent.role})")
   }
+  log("BOOT", "Max review cycles: \{config.max_review_cycles}")
   println("")
   let backends = @agent.create_backends(config.agents)
   let dev_id = find_agent_id(config.agents, @types.AgentRole::Dev)
   let reviewer_id = find_agent_id(config.agents, @types.AgentRole::Review)
   let agent_sessions : Map[String, String] = {}
   let mut iteration = 0
-  // ── Check for saved session ──
   let mut next_task : String = ""
+  let mut last_review_summary : String = ""
+  // ── Check for saved session ──
   match load_session() {
     Some(saved) => {
       log("RESUME", "Found saved session (iteration \{saved.iteration})")
       log("RESUME", "  Phase: \{saved.phase}")
       log("RESUME", "  Task: \{truncate(saved.task, 80)}")
       for entry in saved.agent_sessions {
-        log("RESUME", "  Agent \{entry.0}: session=\{entry.1}")
+        log("RESUME", "  Agent \{entry.0}: session \{entry.1}")
         agent_sessions[entry.0] = entry.1
       }
       println("")
@@ -236,62 +278,58 @@ fn run_repl(config_path : String?) -> Unit {
         log("RESUME", "Resuming...")
         restore_sessions(backends, agent_sessions)
         iteration = saved.iteration
+        last_review_summary = saved.review_summary
         match saved.phase {
-          "dev" => {
-            log("RESUME", "Re-running dev phase...")
-            next_task = saved.task
+          "dev" | "review" => next_task = saved.task
+          _ => {
+            // idle → previous iteration done, build continuation
+            next_task = build_continuation_task(
+              saved.task, saved.review_summary,
+            )
           }
-          "review" => {
-            log("RESUME", "Re-running review phase...")
-            next_task = saved.task
-          }
-          _ =>
-            // idle = last iteration completed, continue heartbeat
-            next_task = ""
         }
       }
     }
     None => ()
   }
-  // ── heartbeat loop ──
-  // If no resume task, ask for initial task
+  // ── Get initial task if needed ──
   if next_task.is_empty() {
     println("")
     next_task = prompt_sync("task> ")
     if next_task.is_empty() || next_task == "quit" || next_task == "exit" {
       log("EXIT", "Bye.")
-      clear_session()
       return
     }
   }
-  // Autonomous loop: runs until quit or fatal error
-  let mut running = true
-  while running {
+  // ── Autonomous loop: runs until Ctrl+C ──
+  while true {
     iteration += 1
     log("HEARTBEAT", "=== Iteration \{iteration} ===")
     log("HEARTBEAT", "Task: \{truncate(next_task, 120)}")
-    // ── save + dev phase ──
+    // ── dev phase ──
     save_session(
       {
         iteration,
         phase: "dev",
         task: next_task,
         dev_output: "",
+        review_summary: last_review_summary,
         agent_sessions,
       },
     )
     let dev_result = run_dev(dev_id, backends, next_task, agent_sessions)
-    // ── save + review phase ──
+    // ── review phase ──
     save_session(
       {
         iteration,
         phase: "review",
         task: next_task,
         dev_output: dev_result,
+        review_summary: last_review_summary,
         agent_sessions,
       },
     )
-    let review_next = match reviewer_id {
+    let review_result = match reviewer_id {
       Some(rid) =>
         run_review(
           dev_id,
@@ -304,124 +342,65 @@ fn run_repl(config_path : String?) -> Unit {
         )
       None => {
         log("SKIP", "No reviewer configured")
-        ""
+        ReviewOutcome::Approved("")
       }
     }
-    // ── save completed ──
-    save_session(
-      {
-        iteration,
-        phase: "idle",
-        task: next_task,
-        dev_output: dev_result,
-        agent_sessions,
-      },
-    )
-    log("HEARTBEAT", "=== Iteration \{iteration} complete ===")
     // ── determine next task ──
-    if not(review_next.is_empty()) {
-      // Reviewer suggested next task → auto-continue
-      log("HEARTBEAT", "Auto-continuing with reviewer suggestion")
-      next_task = review_next
-    } else {
-      // No suggestion → ask user (with timeout hint)
-      println("")
-      log("HEARTBEAT", "Waiting for input (or Enter to let reviewer decide)...")
-      let input = prompt_sync("task> ")
-      if input == "quit" || input == "exit" {
-        log("EXIT", "Bye.")
-        clear_session()
-        running = false
-      } else if input.is_empty() {
-        // Empty input = ask reviewer for next task
-        log("HEARTBEAT", "Asking reviewer for next task...")
-        next_task = ask_next_task(
-          reviewer_id, backends, next_task, dev_result, agent_sessions,
+    match review_result {
+      Approved(summary) => {
+        last_review_summary = summary
+        save_session(
+          {
+            iteration,
+            phase: "idle",
+            task: next_task,
+            dev_output: dev_result,
+            review_summary: summary,
+            agent_sessions,
+          },
         )
-        if next_task.is_empty() {
-          log("HEARTBEAT", "Reviewer has no suggestions. Waiting for input.")
-          next_task = prompt_sync("task> ")
-          if next_task.is_empty() || next_task == "quit" || next_task == "exit" {
-            log("EXIT", "Bye.")
-            clear_session()
-            running = false
-          }
+        log("HEARTBEAT", "=== Iteration \{iteration} complete ===")
+        // Auto-continue: build continuation task for dev
+        log("HEARTBEAT", "Building next task from project state...")
+        next_task = build_continuation_task(next_task, summary)
+      }
+      Rejected(reason) => {
+        last_review_summary = reason
+        save_session(
+          {
+            iteration,
+            phase: "idle",
+            task: next_task,
+            dev_output: dev_result,
+            review_summary: reason,
+            agent_sessions,
+          },
+        )
+        log("HEARTBEAT", "=== Iteration \{iteration} complete (REJECTED) ===")
+        // Rejected → ask user for new direction
+        println("")
+        log(
+          "HEARTBEAT",
+          "Review rejected. Enter a new task or Ctrl+C to stop.",
+        )
+        next_task = prompt_sync("task> ")
+        if next_task.is_empty() || next_task == "quit" || next_task == "exit" {
+          log("EXIT", "Bye.")
+          clear_session()
+          return
         }
-      } else {
-        next_task = input
       }
     }
   }
 }
 
-///| Ask the reviewer what the next task should be
-fn ask_next_task(
-  reviewer_id : String?,
-  backends : Map[String, @agent.BoxedBackend],
-  prev_task : String,
-  dev_output : String,
-  agent_sessions : Map[String, String],
-) -> String {
-  let rid = match reviewer_id {
-    Some(id) => id
-    None => return ""
-  }
-  match backends.get(rid) {
-    Some(backend) => {
-      let context = gather_review_context()
-      let prompt = build_next_task_prompt(prev_task, dev_output, context)
-      log("NEXT", "Asking \{rid} for next task...")
-      let result = backend.run(
-        prompt,
-        "You are a development planning assistant. Based on the current project state, suggest the single most important next task. Respond with just the task description, nothing else.",
-        fn(event) {
-          match event {
-            @types.AgentEvent::SessionId(sid) => {
-              agent_sessions[rid] = sid
-            }
-            _ => ()
-          }
-        },
-      )
-      let suggestion = result.content.trim().to_string()
-      if not(suggestion.is_empty()) {
-        log("NEXT", "Suggested: \{truncate(suggestion, 120)}")
-      }
-      suggestion
-    }
-    None => ""
-  }
+///| Review outcome for the main loop
+enum ReviewOutcome {
+  Approved(String) // review summary
+  Rejected(String) // reason
 }
 
-///| Build prompt to ask for next task
-fn build_next_task_prompt(
-  prev_task : String,
-  dev_output : String,
-  context : String,
-) -> String {
-  let buf = StringBuilder::new()
-  buf.write_string("The previous development task has been completed.\n\n")
-  if not(context.is_empty()) {
-    buf.write_string("## Current Project State\n")
-    buf.write_string(context)
-    buf.write_string("\n")
-  }
-  buf.write_string("## Previous Task\n")
-  buf.write_string(prev_task)
-  buf.write_string("\n\n## Dev Output (summary)\n")
-  buf.write_string(truncate(dev_output, 2000))
-  buf.write_string("\n\n")
-  buf.write_string(
-    "Based on the git history, uncommitted changes, and previous task output, ",
-  )
-  buf.write_string("what is the single most important next development task? ")
-  buf.write_string(
-    "Respond with a concrete, actionable task description. If there's nothing to do, respond with exactly: DONE",
-  )
-  buf.to_string()
-}
-
-///| Restore session IDs to backends from saved state
+///| Restore session IDs to backends
 fn restore_sessions(
   backends : Map[String, @agent.BoxedBackend],
   agent_sessions : Map[String, String],
@@ -450,7 +429,7 @@ fn find_agent_id(
   None
 }
 
-///| Run dev agent, return output. Captures session_id.
+///| Run dev agent, return output
 fn run_dev(
   dev_id : String?,
   backends : Map[String, @agent.BoxedBackend],
@@ -469,13 +448,32 @@ fn run_dev(
         match event {
           @types.AgentEvent::OutputLine(line) =>
             println("  [\{id}] \{truncate(line, 140)}")
+          @types.AgentEvent::ToolCall(name=tool_name, input=tool_input) =>
+            log(
+              "TOOL",
+              "\{id} -> \{tool_name}(\{truncate(tool_input, 100)})",
+            )
+          @types.AgentEvent::ToolResult(name=tool_name, output=tool_output) =>
+            log(
+              "TOOL",
+              "\{id} <- \{tool_name}: \{truncate(tool_output, 120)}",
+            )
+          @types.AgentEvent::SubAgentStart(
+            agent_type=agent_type,
+            task=desc,
+          ) =>
+            log(
+              "AGENT",
+              "\{id} spawned \{agent_type}: \{truncate(desc, 80)}",
+            )
+          @types.AgentEvent::SubAgentEnd(agent_type=agent_type) =>
+            log("AGENT", "\{id} \{agent_type} completed")
           @types.AgentEvent::StatusChange(status) =>
             log("DEV", "\{id} -> \{status}")
           @types.AgentEvent::SessionId(sid) => {
             agent_sessions[id] = sid
             log("DEV", "\{id} session: \{sid}")
           }
-          _ => ()
         }
       })
       println("")
@@ -525,7 +523,7 @@ fn gather_review_context() -> String {
   buf.to_string()
 }
 
-///| Run review, return next task suggestion (empty = no auto-continue)
+///| Run review, return outcome
 fn run_review(
   dev_id : String?,
   reviewer_id : String,
@@ -534,7 +532,7 @@ fn run_review(
   dev_output : String,
   max_cycles : Int,
   agent_sessions : Map[String, String],
-) -> String {
+) -> ReviewOutcome {
   match backends.get(reviewer_id) {
     Some(backend) => {
       let ra = @review.ReviewAgent::new(reviewer_id)
@@ -552,14 +550,7 @@ fn run_review(
         Approved => {
           println("")
           log("REVIEW", "Verdict: APPROVED (all perspectives)")
-          // Approved → ask reviewer for next task
-          ask_next_task(
-            Some(reviewer_id),
-            backends,
-            task,
-            dev_output,
-            agent_sessions,
-          )
+          ReviewOutcome::Approved(review.summary)
         }
         NeedsChanges(items) => {
           println("")
@@ -598,13 +589,7 @@ fn run_review(
             match rework_review.verdict {
               Approved => {
                 log("REVIEW", "Verdict: APPROVED after \{cycle} cycles")
-                return ask_next_task(
-                  Some(reviewer_id),
-                  backends,
-                  task,
-                  current_output,
-                  agent_sessions,
-                )
+                return ReviewOutcome::Approved(rework_review.summary)
               }
               NeedsChanges(new_items) => {
                 log("REVIEW", "Still needs changes")
@@ -615,23 +600,23 @@ fn run_review(
               }
               Rejected(reason) => {
                 log("REVIEW", "REJECTED: \{reason}")
-                return ""
+                return ReviewOutcome::Rejected(reason)
               }
             }
           }
-          log("REVIEW", "Max review cycles reached")
-          ""
+          log("REVIEW", "Max review cycles reached, continuing anyway")
+          ReviewOutcome::Approved(review.summary)
         }
         Rejected(reason) => {
           println("")
           log("REVIEW", "Verdict: REJECTED - \{reason}")
-          ""
+          ReviewOutcome::Rejected(reason)
         }
       }
     }
     None => {
       log("ERROR", "Reviewer backend '\{reviewer_id}' not found")
-      ""
+      ReviewOutcome::Approved("")
     }
   }
 }

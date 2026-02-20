@@ -43,7 +43,7 @@ fn get_int(json : Json, key : String, default : Int) -> Int {
   match json {
     Object(map) =>
       match map.get(key) {
-        Some(Number(n)) => n.to_int()
+        Some(Number(n, ..)) => n.to_int()
         _ => default
       }
     _ => default

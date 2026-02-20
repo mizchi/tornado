@@ -63,9 +63,7 @@ pub fn TaskManager::total(self : TaskManager) -> Int {
 
 ///| Get completed task count
 pub fn TaskManager::completed_count(self : TaskManager) -> Int {
-  self.tasks.iter().filter(fn(t) { t.is_done() }).fold(init=0, fn(acc, _) {
-    acc + 1
-  })
+  self.tasks.iter().filter(fn(t) { t.is_done() }).count()
 }
 
 ///| Check if all tasks are done

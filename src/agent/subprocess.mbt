@@ -75,7 +75,7 @@ fn SubprocessBackend::run_claude_code(
     "claude",
     args_json.stringify(),
     fn(line) {
-      // Parse session_id from init or result events
+      // Parse text/error from JSONL
       match @claude_code.parse_claude_code_line(line) {
         Some(event) =>
           match event {
@@ -96,8 +96,8 @@ fn SubprocessBackend::run_claude_code(
           }
         None => ()
       }
-      // Extract session_id from raw JSONL (init or result events)
-      self.try_extract_session_id(line, on_output)
+      // Parse tool calls and session_id from raw JSONL
+      self.parse_jsonl_events(line, on_output)
     },
     fn() {  },
     fn(err) {
@@ -118,15 +118,16 @@ fn SubprocessBackend::run_claude_code(
   }
 }
 
-///| Extract session_id from a JSONL line and emit event
-fn SubprocessBackend::try_extract_session_id(
+///| Parse JSONL events: session_id and tool calls
+fn SubprocessBackend::parse_jsonl_events(
   self : SubprocessBackend,
   line : String,
   on_output : (@types.AgentEvent) -> Unit,
 ) -> Unit {
   let json = @json.parse(line) catch { _ => return }
   match json {
-    Object(map) =>
+    Object(map) => {
+      // Extract session_id
       match map.get("session_id") {
         Some(String(sid)) =>
           if not(sid.is_empty()) && self.session_id != sid {
@@ -135,7 +136,113 @@ fn SubprocessBackend::try_extract_session_id(
           }
         _ => ()
       }
+      // Extract tool calls, tool results, subagents
+      match map.get("type") {
+        Some(String(event_type)) =>
+          match event_type {
+            "assistant" => self.parse_tool_calls(map, on_output)
+            "tool_result" => self.parse_tool_result(map, on_output)
+            _ => ()
+          }
+        _ => ()
+      }
+    }
     _ => ()
+  }
+}
+
+///| Parse tool_use blocks from assistant message content
+fn SubprocessBackend::parse_tool_calls(
+  _self : SubprocessBackend,
+  map : Map[String, Json],
+  on_output : (@types.AgentEvent) -> Unit,
+) -> Unit {
+  let message = match map.get("message") {
+    Some(Object(m)) => m
+    _ => return
+  }
+  let content = match message.get("content") {
+    Some(Array(arr)) => arr
+    _ => return
+  }
+  for block in content {
+    match block {
+      Object(b) =>
+        match b.get("type") {
+          Some(String(block_type)) =>
+            if block_type == "tool_use" {
+              let tool_name = match b.get("name") {
+                Some(String(n)) => n
+                _ => "unknown"
+              }
+              let tool_input = match b.get("input") {
+                Some(input) => input
+                _ => Json::null()
+              }
+              let input_str = tool_input.stringify()
+              on_output(
+                @types.AgentEvent::ToolCall(
+                  name=tool_name,
+                  input=input_str,
+                ),
+              )
+              // Detect subagent launches (Task tool)
+              if tool_name == "Task" {
+                let agent_type = match tool_input {
+                  Object(m) =>
+                    match m.get("subagent_type") {
+                      Some(String(t)) => t
+                      _ => "unknown"
+                    }
+                  _ => "unknown"
+                }
+                let task_desc = match tool_input {
+                  Object(m) =>
+                    match m.get("description") {
+                      Some(String(d)) => d
+                      _ => ""
+                    }
+                  _ => ""
+                }
+                on_output(
+                  @types.AgentEvent::SubAgentStart(
+                    agent_type=agent_type,
+                    task=task_desc,
+                  ),
+                )
+              }
+            }
+          _ => ()
+        }
+      _ => ()
+    }
+  }
+}
+
+///| Parse tool_result events
+fn SubprocessBackend::parse_tool_result(
+  _self : SubprocessBackend,
+  map : Map[String, Json],
+  on_output : (@types.AgentEvent) -> Unit,
+) -> Unit {
+  let tool_name = match map.get("tool_name") {
+    Some(String(n)) => n
+    _ => match map.get("name") {
+      Some(String(n)) => n
+      _ => "unknown"
+    }
+  }
+  let output = match map.get("content") {
+    Some(String(s)) => s
+    Some(other) => other.stringify()
+    _ => ""
+  }
+  on_output(
+    @types.AgentEvent::ToolResult(name=tool_name, output=output),
+  )
+  // Detect subagent completion
+  if tool_name == "Task" {
+    on_output(@types.AgentEvent::SubAgentEnd(agent_type="Task"))
   }
 }
 

@@ -127,6 +127,9 @@ pub fn OrchestratorCallbacks::noop() -> OrchestratorCallbacks {
 pub(all) enum AgentEvent {
   OutputLine(String)
   ToolCall(name~ : String, input~ : String)
+  ToolResult(name~ : String, output~ : String)
+  SubAgentStart(agent_type~ : String, task~ : String)
+  SubAgentEnd(agent_type~ : String)
   StatusChange(AgentStatus)
   SessionId(String)
 }

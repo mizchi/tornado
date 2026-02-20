@@ -93,10 +93,7 @@ pub fn render_status_bar(
   session : @types.Session,
 ) -> @vnode.TuiNode {
   let total = session.tasks.length()
-  let done = session.tasks.iter().filter(fn(t) { t.is_done() }).fold(
-    init=0,
-    fn(acc, _) { acc + 1 },
-  )
+  let done = session.tasks.iter().filter(fn(t) { t.is_done() }).count()
   let status_text = "Tasks: \{done}/\{total} | Status: \{session.status}"
   @vnode.row(border="single", border_color="rgb(80,80,80)", padding_x=1.0, [
     @vnode.text(status_text, fg="rgb(200,200,200)"),
