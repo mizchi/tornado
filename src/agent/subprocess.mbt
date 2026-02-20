@@ -43,81 +43,83 @@ impl AgentBackend for SubprocessBackend with run(
   }
 }
 
-///| Run via claude CLI with session management
+///| Run via Claude Agent SDK
 fn SubprocessBackend::run_claude_code(
   self : SubprocessBackend,
   task : String,
   system_prompt : String,
   on_output : (@types.AgentEvent) -> Unit,
 ) -> @types.AgentResult {
-  // Build args directly to support --session-id / --continue
-  let args : Array[String] = [
-    "-p", task, "--output-format", "stream-json", "--verbose",
-  ]
+  // Build SDK options as JSON
+  let opts : Map[String, Json] = {}
+  opts["prompt"] = task.to_json()
   if not(system_prompt.is_empty()) {
-    args.push("--system-prompt")
-    args.push(system_prompt)
+    opts["systemPrompt"] = system_prompt.to_json()
   }
   if not(self.model.is_empty()) {
-    args.push("--model")
-    args.push(self.model)
+    opts["model"] = self.model.to_json()
   }
-  // Session management: --continue to resume previous session context
   if not(self.session_id.is_empty()) {
-    args.push("--resume")
-    args.push(self.session_id)
+    opts["sessionId"] = self.session_id.to_json()
   }
-  let args_json = Json::array(args.map(fn(s) { s.to_json() }))
-  // Log the command being launched
-  let cmd_preview = if not(self.session_id.is_empty()) {
-    "claude -p <task> --output-format stream-json --verbose --resume \{self.session_id}"
-  } else {
-    "claude -p <task> --output-format stream-json --verbose"
+  let opts_json = Json::object(opts).stringify()
+  on_output(
+    @types.AgentEvent::Info(
+      "Launching: claude-agent-sdk" +
+      (if not(self.session_id.is_empty()) {
+        " (resume: \{self.session_id})"
+      } else {
+        " (new session)"
+      }),
+    ),
+  )
+  // Run SDK via runner script
+  let raw_output = run_claude_sdk(opts_json)
+  if raw_output.has_prefix("ERROR:") {
+    let err = raw_output
+    on_output(
+      @types.AgentEvent::StatusChange(@types.AgentStatus::Failed(err)),
+    )
+    return { content: "", status: @types.AgentStatus::Failed(err), error: Some(err) }
   }
-  on_output(@types.AgentEvent::Info("Launching: \{cmd_preview}"))
+  // Parse JSONL output
   let buf = StringBuilder::new()
   let mut has_error = false
   let error_buf = StringBuilder::new()
-  @ffi.exec_stream(
-    "claude",
-    args_json.stringify(),
-    fn(line) {
-      // Parse text/error from JSONL
-      match @claude_code.parse_claude_code_line(line) {
-        Some(event) =>
-          match event {
-            TextDelta(s) => {
-              buf.write_string(s)
-              on_output(@types.AgentEvent::OutputLine(s))
+  let lines = raw_output.split("\n")
+  for line_view in lines {
+    let line = line_view.to_string().trim().to_string()
+    if line.is_empty() {
+      continue
+    }
+    self.parse_sdk_event(line, buf, error_buf, on_output) |> ignore
+    // Check for error
+    let json = @json.parse(line) catch { _ => continue }
+    match json {
+      Object(map) =>
+        match map.get("type") {
+          Some(String("result")) =>
+            match map.get("is_error") {
+              Some(True) => {
+                has_error = true
+                match map.get("result") {
+                  Some(String(err_msg)) => error_buf.write_string(err_msg)
+                  _ => ()
+                }
+              }
+              _ => ()
             }
-            Error(msg) => {
-              has_error = true
-              error_buf.write_string(msg)
-              on_output(
-                @types.AgentEvent::StatusChange(
-                  @types.AgentStatus::Failed(msg),
-                ),
-              )
-            }
-            _ => ()
-          }
-        None => ()
-      }
-      // Parse tool calls and session_id from raw JSONL
-      self.parse_jsonl_events(line, on_output)
-    },
-    fn() {  },
-    fn(err) {
-      has_error = true
-      error_buf.write_string(err)
-      on_output(
-        @types.AgentEvent::StatusChange(@types.AgentStatus::Failed(err)),
-      )
-    },
-  )
+          _ => ()
+        }
+      _ => ()
+    }
+  }
   let content = buf.to_string()
   if has_error {
     let err = error_buf.to_string()
+    on_output(
+      @types.AgentEvent::StatusChange(@types.AgentStatus::Failed(err)),
+    )
     { content, status: @types.AgentStatus::Failed(err), error: Some(err) }
   } else {
     on_output(@types.AgentEvent::StatusChange(@types.AgentStatus::Completed))
@@ -125,16 +127,18 @@ fn SubprocessBackend::run_claude_code(
   }
 }
 
-///| Parse JSONL events: session_id and tool calls
-fn SubprocessBackend::parse_jsonl_events(
+///| Parse a single SDK JSONL event line
+fn SubprocessBackend::parse_sdk_event(
   self : SubprocessBackend,
   line : String,
+  buf : StringBuilder,
+  _error_buf : StringBuilder,
   on_output : (@types.AgentEvent) -> Unit,
 ) -> Unit {
   let json = @json.parse(line) catch { _ => return }
   match json {
     Object(map) => {
-      // Extract session_id
+      // Extract session_id from any message
       match map.get("session_id") {
         Some(String(sid)) =>
           if not(sid.is_empty()) && self.session_id != sid {
@@ -143,16 +147,24 @@ fn SubprocessBackend::parse_jsonl_events(
           }
         _ => ()
       }
-      // Extract events by type
       match map.get("type") {
         Some(String(event_type)) =>
           match event_type {
-            "system" => self.parse_system_event(map, on_output)
-            "assistant" => self.parse_tool_calls(map, on_output)
+            "system" => parse_system_event(map, on_output)
+            "assistant" => parse_tool_calls(map, on_output)
+            "stream_event" => {
+              // SDK wraps Anthropic streaming events in stream_event
+              match map.get("event") {
+                Some(Object(event)) =>
+                  self.parse_stream_event(event, buf, on_output)
+                _ => ()
+              }
+            }
+            "tool_result" => parse_tool_result(map, on_output)
+            // CLI-compatible event types
             "content_block_start" =>
-              self.parse_content_block_start(map, on_output)
-            "tool_result" => self.parse_tool_result(map, on_output)
-            "result" => self.parse_result_event(map, on_output)
+              parse_content_block_start(map, on_output)
+            "result" => parse_sdk_result_event(map, on_output)
             _ => ()
           }
         _ => ()
@@ -162,161 +174,42 @@ fn SubprocessBackend::parse_jsonl_events(
   }
 }
 
-///| Parse tool_use blocks from assistant message content
-fn SubprocessBackend::parse_tool_calls(
+///| Parse an SDK stream_event's inner Anthropic event
+fn SubprocessBackend::parse_stream_event(
   _self : SubprocessBackend,
-  map : Map[String, Json],
+  event : Map[String, Json],
+  buf : StringBuilder,
   on_output : (@types.AgentEvent) -> Unit,
 ) -> Unit {
-  let message = match map.get("message") {
-    Some(Object(m)) => m
-    _ => return
-  }
-  let content = match message.get("content") {
-    Some(Array(arr)) => arr
-    _ => return
-  }
-  for block in content {
-    match block {
-      Object(b) =>
-        match b.get("type") {
-          Some(String(block_type)) =>
-            if block_type == "tool_use" {
-              let tool_name = match b.get("name") {
-                Some(String(n)) => n
-                _ => "unknown"
-              }
-              let tool_input = match b.get("input") {
-                Some(input) => input
-                _ => Json::null()
-              }
-              let input_str = tool_input.stringify()
-              on_output(
-                @types.AgentEvent::ToolCall(
-                  name=tool_name,
-                  input=input_str,
-                ),
-              )
-              // Detect subagent launches (Task tool)
-              if tool_name == "Task" {
-                let agent_type = match tool_input {
-                  Object(m) =>
-                    match m.get("subagent_type") {
-                      Some(String(t)) => t
-                      _ => "unknown"
+  match event.get("type") {
+    Some(String(event_type)) =>
+      match event_type {
+        "content_block_start" => parse_content_block_start(event, on_output)
+        "content_block_delta" => {
+          match event.get("delta") {
+            Some(Object(delta)) =>
+              match delta.get("type") {
+                Some(String("text_delta")) =>
+                  match delta.get("text") {
+                    Some(String(text)) => {
+                      buf.write_string(text)
+                      on_output(@types.AgentEvent::OutputLine(text))
                     }
-                  _ => "unknown"
-                }
-                let task_desc = match tool_input {
-                  Object(m) =>
-                    match m.get("description") {
-                      Some(String(d)) => d
-                      _ => ""
-                    }
-                  _ => ""
-                }
-                on_output(
-                  @types.AgentEvent::SubAgentStart(
-                    agent_type=agent_type,
-                    task=task_desc,
-                  ),
-                )
+                    _ => ()
+                  }
+                _ => ()
               }
-            }
-          _ => ()
-        }
-      _ => ()
-    }
-  }
-}
-
-///| Parse tool_result events
-fn SubprocessBackend::parse_tool_result(
-  _self : SubprocessBackend,
-  map : Map[String, Json],
-  on_output : (@types.AgentEvent) -> Unit,
-) -> Unit {
-  let tool_name = match map.get("tool_name") {
-    Some(String(n)) => n
-    _ => match map.get("name") {
-      Some(String(n)) => n
-      _ => "unknown"
-    }
-  }
-  let output = match map.get("content") {
-    Some(String(s)) => s
-    Some(other) => other.stringify()
-    _ => ""
-  }
-  on_output(
-    @types.AgentEvent::ToolResult(name=tool_name, output=output),
-  )
-  // Detect subagent completion
-  if tool_name == "Task" {
-    on_output(@types.AgentEvent::SubAgentEnd(agent_type="Task"))
-  }
-}
-
-///| Parse system init event (model, tools, session)
-fn SubprocessBackend::parse_system_event(
-  _self : SubprocessBackend,
-  map : Map[String, Json],
-  on_output : (@types.AgentEvent) -> Unit,
-) -> Unit {
-  let subtype = match map.get("subtype") {
-    Some(String(s)) => s
-    _ => ""
-  }
-  if subtype == "init" {
-    let model = match map.get("model") {
-      Some(String(m)) => m
-      _ => "unknown"
-    }
-    let tools_count = match map.get("tools") {
-      Some(Array(arr)) => arr.length()
-      _ => 0
-    }
-    on_output(
-      @types.AgentEvent::Info(
-        "Session initialized: model=\{model}, tools=\{tools_count}",
-      ),
-    )
-  }
-}
-
-///| Parse content_block_start (tool_use start, text start, thinking)
-fn SubprocessBackend::parse_content_block_start(
-  _self : SubprocessBackend,
-  map : Map[String, Json],
-  on_output : (@types.AgentEvent) -> Unit,
-) -> Unit {
-  let block = match map.get("content_block") {
-    Some(Object(b)) => b
-    _ => return
-  }
-  match block.get("type") {
-    Some(String(block_type)) =>
-      match block_type {
-        "tool_use" => {
-          let name = match block.get("name") {
-            Some(String(n)) => n
-            _ => "unknown"
+            _ => ()
           }
-          on_output(@types.AgentEvent::Info("Using tool: \{name}"))
         }
-        "thinking" =>
-          on_output(@types.AgentEvent::Info("Thinking..."))
-        "text" =>
-          on_output(@types.AgentEvent::Info("Generating response..."))
         _ => ()
       }
     _ => ()
   }
 }
 
-///| Parse result event (cost, duration, token usage)
-fn SubprocessBackend::parse_result_event(
-  _self : SubprocessBackend,
+///| Parse SDK result event (uses total_cost_usd instead of cost_usd)
+fn parse_sdk_result_event(
   map : Map[String, Json],
   on_output : (@types.AgentEvent) -> Unit,
 ) -> Unit {
@@ -326,9 +219,15 @@ fn SubprocessBackend::parse_result_event(
   }
   let buf = StringBuilder::new()
   buf.write_string("Result: \{subtype}")
-  match map.get("cost_usd") {
+  // SDK uses total_cost_usd
+  match map.get("total_cost_usd") {
     Some(Number(n, ..)) => buf.write_string(", cost=$\{n}")
-    _ => ()
+    _ =>
+      // Fallback to cost_usd (CLI format)
+      match map.get("cost_usd") {
+        Some(Number(n, ..)) => buf.write_string(", cost=$\{n}")
+        _ => ()
+      }
   }
   match map.get("duration_ms") {
     Some(Number(n, ..)) => {
@@ -344,7 +243,10 @@ fn SubprocessBackend::parse_result_event(
     }
     _ => ()
   }
-  // Token usage
+  match map.get("num_turns") {
+    Some(Number(n, ..)) => buf.write_string(", turns=\{n.to_int()}")
+    _ => ()
+  }
   match map.get("usage") {
     Some(Object(usage)) => {
       let input_tokens = match usage.get("input_tokens") {
@@ -359,6 +261,15 @@ fn SubprocessBackend::parse_result_event(
         buf.write_string(", tokens=\{input_tokens}in/\{output_tokens}out")
       }
     }
+    _ => ()
+  }
+  // Extract final result text
+  match map.get("result") {
+    Some(String(result_text)) =>
+      if not(result_text.is_empty()) {
+        on_output(@types.AgentEvent::Info(buf.to_string()))
+        return
+      }
     _ => ()
   }
   on_output(@types.AgentEvent::Info(buf.to_string()))

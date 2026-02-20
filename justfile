@@ -1,5 +1,8 @@
 default: check test
 
+setup:
+  npm install
+
 check:
   moon check --target js
 
