@@ -73,3 +73,82 @@ test "Task with parent_id" {
   let t = @types.Task::new("t2", "sub-task", parent_id=Some("t1"))
   inspect(t.parent_id, content="Some(\"t1\")")
 }
+
+test "AgentRole show - planner and verifier" {
+  inspect(@types.AgentRole::Planner, content="Planner")
+  inspect(@types.AgentRole::Verifier, content="Verifier")
+}
+
+test "MilestoneStatus show" {
+  inspect(@types.MilestoneStatus::Pending, content="Pending")
+  inspect(@types.MilestoneStatus::InProgress, content="InProgress")
+  inspect(@types.MilestoneStatus::Done, content="Done")
+  inspect(
+    @types.MilestoneStatus::Failed("timeout"),
+    content="Failed(\"timeout\")",
+  )
+}
+
+test "Milestone creation and mutation" {
+  let m : @types.Milestone = {
+    id: "m1",
+    goal: "implement feature X",
+    status: @types.MilestoneStatus::Pending,
+    tasks: [],
+    current_wave: 0,
+  }
+  inspect(m.status, content="Pending")
+  m.status = @types.MilestoneStatus::InProgress
+  inspect(m.status, content="InProgress")
+}
+
+test "RalphTask creation and status update" {
+  let t : @types.RalphTask = {
+    id: "m1-t1",
+    description: "write tests",
+    wave: 0,
+    status: @types.TaskStatus::Pending,
+    result: None,
+    plan_doc: None,
+  }
+  inspect(t.status, content="Pending")
+  inspect(t.wave, content="0")
+  t.status = @types.TaskStatus::Done
+  t.result = Some("all tests pass")
+  inspect(t.status, content="Done")
+  inspect(t.result, content="Some(\"all tests pass\")")
+}
+
+test "RalphPhase show" {
+  inspect(@types.RalphPhase::LoadingMilestones, content="LoadingMilestones")
+  inspect(@types.RalphPhase::Planning("m1"), content="Planning(\"m1\")")
+  inspect(
+    @types.RalphPhase::ExecutingWave("m1", 0),
+    content="ExecutingWave(\"m1\", 0)",
+  )
+  inspect(
+    @types.RalphPhase::Verifying("m1", 1),
+    content="Verifying(\"m1\", 1)",
+  )
+  inspect(
+    @types.RalphPhase::Reworking("m1", 0),
+    content="Reworking(\"m1\", 0)",
+  )
+  inspect(
+    @types.RalphPhase::MilestoneComplete("m1"),
+    content="MilestoneComplete(\"m1\")",
+  )
+  inspect(@types.RalphPhase::AllComplete, content="AllComplete")
+}
+
+test "VerifierVerdict show" {
+  inspect(@types.VerifierVerdict::Approved, content="Approved")
+  inspect(
+    @types.VerifierVerdict::NeedsRework(["t1: fix error handling"]),
+    content="NeedsRework([\"t1: fix error handling\"])",
+  )
+  inspect(
+    @types.VerifierVerdict::MilestoneFailed("critical failure"),
+    content="MilestoneFailed(\"critical failure\")",
+  )
+}

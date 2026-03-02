@@ -6,6 +6,9 @@ pub(all) struct ProjectConfig {
   review_interval : Int
   agents : Array[@types.AgentConfig]
   parse_warnings : Array[String]
+  ralph_enabled : Bool
+  milestones_path : String?
+  max_rework_attempts : Int
 }
 
 ///| Known valid agent kind strings
@@ -14,7 +17,9 @@ let valid_agent_kinds : Array[String] = [
 ]
 
 ///| Known valid agent role strings
-let valid_agent_roles : Array[String] = ["dev", "review", "orchestrator"]
+let valid_agent_roles : Array[String] = [
+  "dev", "builder", "review", "orchestrator", "planner", "verifier",
+]
 
 ///| Parse AgentKind from string
 fn parse_agent_kind(s : String) -> @types.AgentKind {
@@ -29,9 +34,11 @@ fn parse_agent_kind(s : String) -> @types.AgentKind {
 ///| Parse AgentRole from string
 fn parse_agent_role(s : String) -> @types.AgentRole {
   match s {
-    "dev" => Dev
+    "dev" | "builder" => Dev
     "review" => Review
     "orchestrator" => Orchestrator
+    "planner" => Planner
+    "verifier" => Verifier
     _ => Dev
   }
 }
@@ -54,6 +61,19 @@ fn get_int(json : Json, key : String, default : Int) -> Int {
     Object(map) =>
       match map.get(key) {
         Some(Number(n, ..)) => n.to_int()
+        _ => default
+      }
+    _ => default
+  }
+}
+
+///| Get a bool from a JSON object
+fn get_bool(json : Json, key : String, default : Bool) -> Bool {
+  match json {
+    Object(map) =>
+      match map.get(key) {
+        Some(True) => true
+        Some(False) => false
         _ => default
       }
     _ => default
@@ -126,6 +146,9 @@ pub fn ProjectConfig::from_json(json : Json) -> ProjectConfig raise Failure {
           }
         _ => ()
       }
+      let ralph_enabled = get_bool(json, "ralph_enabled", false)
+      let milestones_path = get_string_opt(json, "milestones_path")
+      let max_rework_attempts = get_int(json, "max_rework_attempts", 3)
       {
         project_dir,
         review_dir,
@@ -133,6 +156,9 @@ pub fn ProjectConfig::from_json(json : Json) -> ProjectConfig raise Failure {
         review_interval,
         agents,
         parse_warnings,
+        ralph_enabled,
+        milestones_path,
+        max_rework_attempts,
       }
     }
     _ => raise Failure::Failure("Config must be a JSON object")
@@ -148,6 +174,9 @@ pub fn ProjectConfig::default() -> ProjectConfig {
     review_interval: 1,
     agents: [],
     parse_warnings: [],
+    ralph_enabled: false,
+    milestones_path: None,
+    max_rework_attempts: 3,
   }
 }
 
@@ -178,6 +207,51 @@ pub fn ProjectConfig::preset_default() -> ProjectConfig {
     review_interval: 1,
     agents: [dev, reviewer],
     parse_warnings: [],
+    ralph_enabled: false,
+    milestones_path: None,
+    max_rework_attempts: 3,
+  }
+}
+
+///| Preset for ralph loop: planner=claude-code, builder=claude-code, verifier=codex
+pub fn ProjectConfig::preset_ralph() -> ProjectConfig {
+  let planner : @types.AgentConfig = {
+    id: "planner",
+    kind: ClaudeCode,
+    role: Planner,
+    model: None,
+    system_prompt: None,
+    working_dir: ".",
+    max_iterations: 10,
+  }
+  let builder : @types.AgentConfig = {
+    id: "builder",
+    kind: ClaudeCode,
+    role: Dev,
+    model: None,
+    system_prompt: None,
+    working_dir: ".",
+    max_iterations: 10,
+  }
+  let verifier : @types.AgentConfig = {
+    id: "verifier",
+    kind: Codex,
+    role: Verifier,
+    model: None,
+    system_prompt: None,
+    working_dir: ".",
+    max_iterations: 5,
+  }
+  {
+    project_dir: ".",
+    review_dir: "docs/reviews",
+    max_review_cycles: 3,
+    review_interval: 1,
+    agents: [planner, builder, verifier],
+    parse_warnings: [],
+    ralph_enabled: true,
+    milestones_path: None,
+    max_rework_attempts: 3,
   }
 }
 
@@ -208,6 +282,13 @@ pub fn ProjectConfig::validate(self : ProjectConfig) -> Array[String] {
   let has_dev = self.agents.iter().any(fn(a) { a.role == Dev })
   if not(has_dev) && not(self.agents.is_empty()) {
     errors.push("No dev agent configured")
+  }
+  // Ralph-specific validation
+  if self.ralph_enabled {
+    let has_planner = self.agents.iter().any(fn(a) { a.role == Planner })
+    if not(has_planner) {
+      errors.push("Ralph mode requires a planner agent")
+    }
   }
   errors
 }

@@ -6,6 +6,7 @@ pub(all) enum CliCommand {
     review_kind~ : @types.AgentKind?,
     review_interval~ : Int?,
     rlm~ : Bool,
+    ralph~ : Bool,
     lang~ : String?,
     warnings~ : Array[String],
   )
@@ -27,6 +28,7 @@ pub fn parse_cli_args(
       review_kind=None,
       review_interval=None,
       rlm=false,
+      ralph=false,
       lang=None,
       warnings=[],
     )
@@ -91,6 +93,9 @@ pub fn apply_overrides(
     review_interval: ri,
     agents,
     parse_warnings: config.parse_warnings,
+    ralph_enabled: config.ralph_enabled,
+    milestones_path: config.milestones_path,
+    max_rework_attempts: config.max_rework_attempts,
   }
 }
 
@@ -123,6 +128,7 @@ fn parse_run_args(
   let mut review_kind : @types.AgentKind? = None
   let mut review_interval : Int? = None
   let mut rlm : Bool = false
+  let mut ralph : Bool = false
   let mut lang : String? = None
   let warnings : Array[String] = []
 
@@ -164,6 +170,12 @@ fn parse_run_args(
 
     if token == "--rlm" {
       rlm = true
+      i += 1
+      continue
+    }
+
+    if token == "--ralph" {
+      ralph = true
       i += 1
       continue
     }
@@ -227,7 +239,7 @@ fn parse_run_args(
     i += 1
   }
 
-  Run(config_path~, plan_path~, dev_kind~, review_kind~, review_interval~, rlm~, lang~, warnings~)
+  Run(config_path~, plan_path~, dev_kind~, review_kind~, review_interval~, rlm~, ralph~, lang~, warnings~)
 }
 
 fn parse_kind_alias(raw : String) -> @types.AgentKind? {

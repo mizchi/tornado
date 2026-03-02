@@ -11,6 +11,8 @@ pub(all) enum AgentRole {
   Dev
   Review
   Orchestrator
+  Planner
+  Verifier
 } derive(Eq, Show)
 
 ///| Runtime status of an agent
@@ -199,3 +201,50 @@ pub fn Task::is_pending(self : Task) -> Bool {
 pub fn Task::is_done(self : Task) -> Bool {
   self.status == Done
 }
+
+// --- Ralph Loop types ---
+
+///| Status of a milestone in the ralph loop
+pub(all) enum MilestoneStatus {
+  Pending
+  InProgress
+  Done
+  Failed(String)
+} derive(Eq, Show)
+
+///| A milestone containing grouped tasks
+pub(all) struct Milestone {
+  id : String
+  goal : String
+  mut status : MilestoneStatus
+  mut tasks : Array[RalphTask]
+  mut current_wave : Int
+}
+
+///| A task within the ralph loop
+pub(all) struct RalphTask {
+  id : String
+  description : String
+  wave : Int
+  mut status : TaskStatus
+  mut result : String?
+  mut plan_doc : String?
+}
+
+///| Phase of the ralph loop state machine
+pub(all) enum RalphPhase {
+  LoadingMilestones
+  Planning(String)
+  ExecutingWave(String, Int)
+  Verifying(String, Int)
+  Reworking(String, Int)
+  MilestoneComplete(String)
+  AllComplete
+} derive(Eq, Show)
+
+///| Verdict from the verifier agent
+pub(all) enum VerifierVerdict {
+  Approved
+  NeedsRework(Array[String])
+  MilestoneFailed(String)
+} derive(Eq, Show)

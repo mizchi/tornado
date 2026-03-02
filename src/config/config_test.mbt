@@ -191,3 +191,88 @@ test "valid config parse_warnings is empty" {
   let errors = config.validate()
   assert_true(errors.is_empty())
 }
+
+test "parse planner and verifier roles" {
+  let json =
+    #|{
+    #|  "agents": [
+    #|    { "id": "p1", "kind": "claude-code", "role": "planner" },
+    #|    { "id": "b1", "kind": "claude-code", "role": "builder" },
+    #|    { "id": "v1", "kind": "codex", "role": "verifier" }
+    #|  ]
+    #|}
+  let config = @config.ProjectConfig::from_json_string(json)
+  assert_true(config.parse_warnings.is_empty())
+  inspect(config.agents[0].role, content="Planner")
+  inspect(config.agents[1].role, content="Dev")
+  inspect(config.agents[2].role, content="Verifier")
+}
+
+test "parse ralph_enabled and milestones_path" {
+  let json =
+    #|{
+    #|  "ralph_enabled": true,
+    #|  "milestones_path": ".tornado/milestones.json",
+    #|  "max_rework_attempts": 5,
+    #|  "agents": [
+    #|    { "id": "p1", "kind": "claude-code", "role": "planner" },
+    #|    { "id": "b1", "kind": "claude-code", "role": "dev" }
+    #|  ]
+    #|}
+  let config = @config.ProjectConfig::from_json_string(json)
+  assert_true(config.ralph_enabled)
+  inspect(
+    config.milestones_path,
+    content="Some(\".tornado/milestones.json\")",
+  )
+  inspect(config.max_rework_attempts, content="5")
+}
+
+test "ralph_enabled defaults to false" {
+  let json =
+    #|{
+    #|  "agents": [
+    #|    { "id": "dev-1", "kind": "claude-code", "role": "dev" }
+    #|  ]
+    #|}
+  let config = @config.ProjectConfig::from_json_string(json)
+  assert_true(not(config.ralph_enabled))
+  inspect(config.milestones_path, content="None")
+  inspect(config.max_rework_attempts, content="3")
+}
+
+test "validate ralph requires planner" {
+  let json =
+    #|{
+    #|  "ralph_enabled": true,
+    #|  "agents": [
+    #|    { "id": "dev-1", "kind": "claude-code", "role": "dev" }
+    #|  ]
+    #|}
+  let config = @config.ProjectConfig::from_json_string(json)
+  let errors = config.validate()
+  assert_true(errors.iter().any(fn(e) { e.contains("planner") }))
+}
+
+test "validate ralph with planner and dev passes" {
+  let json =
+    #|{
+    #|  "ralph_enabled": true,
+    #|  "agents": [
+    #|    { "id": "p1", "kind": "claude-code", "role": "planner" },
+    #|    { "id": "b1", "kind": "claude-code", "role": "dev" }
+    #|  ]
+    #|}
+  let config = @config.ProjectConfig::from_json_string(json)
+  let errors = config.validate()
+  assert_true(errors.is_empty())
+}
+
+test "ProjectConfig::preset_ralph" {
+  let config = @config.ProjectConfig::preset_ralph()
+  assert_true(config.ralph_enabled)
+  assert_true(config.agents.length() == 3)
+  inspect(config.agents[0].role, content="Planner")
+  inspect(config.agents[1].role, content="Dev")
+  inspect(config.agents[2].role, content="Verifier")
+}

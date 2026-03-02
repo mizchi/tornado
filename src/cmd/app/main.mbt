@@ -32,6 +32,7 @@ fn main {
       review_kind=review_kind,
       review_interval=review_interval,
       rlm=rlm,
+      ralph=ralph,
       lang=cli_lang,
       warnings=warnings,
     ) => {
@@ -39,17 +40,21 @@ fn main {
         log("WARN", w)
       }
       let lang = resolve_lang(cli_lang)
-      let initial_task = load_plan_task(plan_path)
-      run_repl(
-        config_path,
-        plan_path,
-        rlm,
-        initial_task,
-        dev_kind,
-        review_kind,
-        review_interval,
-        lang,
-      )
+      if ralph {
+        run_ralph(config_path, lang, dev_kind, review_kind)
+      } else {
+        let initial_task = load_plan_task(plan_path)
+        run_repl(
+          config_path,
+          plan_path,
+          rlm,
+          initial_task,
+          dev_kind,
+          review_kind,
+          review_interval,
+          lang,
+        )
+      }
     }
     @cli.CliCommand::Validate(path) =>
       match path {
@@ -77,6 +82,9 @@ fn print_usage() -> Unit {
   println("  tornado --dev=codex --review=claude")
   println("  tornado --review-interval=3          # review every 3 dev iterations")
   println("  tornado --rlm TODO.md                # improvement loop mode")
+  println(
+    "  tornado --ralph                      # ralph loop (milestone-based autonomous dev)",
+  )
   println("  tornado validate <config>  # validate config file")
   println("")
   println("Agent kind options: claude | claude-code | codex | api | mock")
@@ -84,11 +92,119 @@ fn print_usage() -> Unit {
   println("Options:")
   println("  --review-interval=N  Run N dev iterations per review (default: 1)")
   println("  --rlm                Enable improvement loop mode (measure→improve→verify→commit/revert)")
+  println(
+    "  --ralph              Enable ralph loop mode (milestone→plan→execute→verify)",
+  )
   println("  --lang=auto|ja|en    Review language (default: auto, detected from LANG env)")
   println("")
   println("Autonomous heartbeat: dev runs → reviewer reviews →")
   println("dev continues with next task → forever until Ctrl+C.")
   println("Session auto-saved to .tornado/session.json for resume.")
+}
+
+///| Run ralph loop mode
+fn run_ralph(
+  config_path : String?,
+  lang : String,
+  dev_kind : @types.AgentKind?,
+  review_kind : @types.AgentKind?,
+) -> Unit {
+  log("INFO", "Starting ralph loop mode...")
+  // Load or create config
+  let config = match config_path {
+    Some(path) => {
+      let content = read_file_sync(path)
+      if content.has_prefix("ERROR:") {
+        log("ERROR", "Failed to read config: \{content}")
+        return
+      }
+      try {
+        let parsed = @config.ProjectConfig::from_json_string(content)
+        // Apply ralph_enabled override
+        {
+          ..parsed,
+          ralph_enabled: true,
+        }
+      } catch {
+        err => {
+          log("ERROR", "Failed to parse config: \{err}")
+          return
+        }
+      }
+    }
+    None => @config.ProjectConfig::preset_ralph()
+  }
+  // Apply kind overrides
+  let config = @cli.apply_overrides(config, dev_kind~, review_kind~)
+  // Ensure ralph_enabled is preserved after overrides
+  let config : @config.ProjectConfig = { ..config, ralph_enabled: true }
+  // Validate config
+  let errors = config.validate()
+  if not(errors.is_empty()) {
+    for e in errors {
+      log("ERROR", e)
+    }
+    return
+  }
+  // Create backends
+  let backends = @agent.create_backends(config.agents)
+  // Load or create milestones
+  let milestones_path = match config.milestones_path {
+    Some(p) => p
+    None => ".tornado/milestones.json"
+  }
+  let mgr = if is_existing_file(milestones_path) {
+    let content = read_file_sync(milestones_path)
+    if content.has_prefix("ERROR:") {
+      log("WARN", "Could not read milestones file, starting fresh")
+      @ralph.MilestoneManager::new()
+    } else {
+      try {
+        @ralph.MilestoneManager::load_from_json(content)
+      } catch {
+        err => {
+          log("WARN", "Could not parse milestones file: \{err}, starting fresh")
+          @ralph.MilestoneManager::new()
+        }
+      }
+    }
+  } else {
+    log("INFO", "No milestones file found at \{milestones_path}")
+    log("INFO", "Create \{milestones_path} with milestone definitions to start")
+    @ralph.MilestoneManager::new()
+  }
+  if mgr.milestones.is_empty() {
+    log("WARN", "No milestones defined. Create \{milestones_path} first.")
+    return
+  }
+  // Create callbacks
+  let callbacks : @types.OrchestratorCallbacks = {
+    on_agent_output: fn(id, line) { log("OUT", "[\{id}] \{line}") },
+    on_agent_complete: fn(id, _result) { log("INFO", "Agent \{id} complete") },
+    on_task_start: fn(tid, desc, aid) {
+      log("INFO", "Task \{tid}: \{desc} (agent: \{aid})")
+    },
+    on_task_complete: fn(tid, status) {
+      log("INFO", "Task \{tid} → \{status}")
+    },
+    on_task_assign: fn(tid, aid) { log("INFO", "Assigned \{tid} → \{aid}") },
+    on_review_start: fn(tid, rid) {
+      log("INFO", "Review \{tid} by \{rid}")
+    },
+    on_review_complete: fn(tid, verdict) {
+      log("INFO", "Review \{tid}: \{verdict}")
+    },
+    on_phase_change: fn(_sid, phase) { log("INFO", "Phase: \{phase}") },
+    on_session_complete: fn(_sid) { log("INFO", "Session complete") },
+    on_info: fn(msg) { log("INFO", msg) },
+  }
+  // Run ralph loop
+  let rl = @ralph.RalphLoop::new(config, mgr, backends, callbacks, lang~)
+  rl.run()
+  // Save milestones
+  let json = mgr.to_json()
+  write_file_sync(milestones_path, json)
+  log("INFO", "Milestones saved to \{milestones_path}")
 }
 
 fn is_existing_file(path : String) -> Bool {

@@ -33,6 +33,9 @@ fn make_test_config() -> @config.ProjectConfig {
     review_interval: 1,
     agents: [dev_agent, review_agent],
     parse_warnings: [],
+    ralph_enabled: false,
+    milestones_path: None,
+    max_rework_attempts: 3,
   }
 }
 
@@ -85,6 +88,9 @@ test "Orchestrator without review agent" {
     review_interval: 1,
     agents: [dev_agent],
     parse_warnings: [],
+    ralph_enabled: false,
+    milestones_path: None,
+    max_rework_attempts: 3,
   }
   let dev_mock = @agent.MockBackend::new(
     default_response="1. Task A\n2. Task B",
@@ -192,6 +198,9 @@ test "Orchestrator handles missing backend for assigned task" {
     review_interval: 1,
     agents: [dev_agent],
     parse_warnings: [],
+    ralph_enabled: false,
+    milestones_path: None,
+    max_rework_attempts: 3,
   }
   // Register backend as "dev-1" for decompose, but task gets assigned to "dev-1"
   // and we remove it before execution
@@ -237,6 +246,9 @@ test "Orchestrator iteration respects max_review_cycles" {
     review_interval: 1,
     agents: [dev_agent, review_agent],
     parse_warnings: [],
+    ralph_enabled: false,
+    milestones_path: None,
+    max_rework_attempts: 3,
   }
   let dev_mock = @agent.MockBackend::new(default_response="task done")
   // Always returns needs_changes - never approves
@@ -284,6 +296,9 @@ test "Orchestrator rework preserves review data across cycles" {
     review_interval: 1,
     agents: [dev_agent, review_agent],
     parse_warnings: [],
+    ralph_enabled: false,
+    milestones_path: None,
+    max_rework_attempts: 3,
   }
   let dev_mock = @agent.MockBackend::new(default_response="initial work")
   // Review always says needs_changes — never approves
