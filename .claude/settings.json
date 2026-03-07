@@ -1,0 +1,14 @@
+{
+  "extraKnownMarketplaces": {
+    "magna-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "raksul/novasell-magna"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "security-guidance@claude-plugins-official": true,
+    "magna@magna-marketplace": true
+  }
+}
