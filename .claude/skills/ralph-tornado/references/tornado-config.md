@@ -5,8 +5,8 @@
 ```jsonc
 {
   "ralph_enabled": true,
-  "milestones_path": "<絶対パス>/.history/{date}_{name}/milestones.json",
-  "review_dir": ".history/{date}_{name}",
+  "milestones_path": "<絶対パス>/.runs/{date}_{name}/milestones.json",
+  "review_dir": ".runs/{date}_{name}",
   "max_rework_attempts": 3,
   "agents": [
     { "id": "planner",  "kind": "mock",            "role": "planner",  "max_iterations": 1 },

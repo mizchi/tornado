@@ -63,7 +63,7 @@ tornado のランタイム（`RalphLoop::run()`）とは直接の依存関係は
 
 **Step 1: 出力ディレクトリ作成 + 英訳**
 
-1. 出力ディレクトリ名を決定（`.history/` 配下にタイムスタンプ + 計画名）
+1. 出力ディレクトリ名を決定（`.runs/` 配下にタイムスタンプ + 計画名）
 2. 計画ファイルを英語に翻訳し `plan-en.md` として保存
    - コード識別子・ファイルパスはそのまま保持
    - この英訳版が以降の Plan Context の基準となる
@@ -223,7 +223,7 @@ or milestones that haven't been implemented yet.
 実行後、以下のファイルが生成される:
 
 ```
-.history/<timestamp>_<plan-name>/
+.runs/<timestamp>_<plan-name>/
   plan-en.md                # 計画ファイルの英訳版
   milestones.json           # Plan Context 注入済みマイルストーン定義
   tornado.json              # tornado 設定ファイル
