@@ -116,7 +116,7 @@ test "ReviewAgent::review merges needs_changes with perspective tags" {
   }
 }
 
-test "ReviewAgent::review stops on rejected" {
+test "ReviewAgent::review keeps first rejected after parallel execution" {
   let mock = @agent.MockBackend::new(
     default_response="<rejected>critical flaw</rejected>",
   )
@@ -126,8 +126,12 @@ test "ReviewAgent::review stops on rejected" {
   task.complete("done")
   let result = ra.review(task, backend)
   match result.verdict {
-    @types.ReviewVerdict::Rejected(reason) =>
+    @types.ReviewVerdict::Rejected(reason) => {
       assert_true(reason.contains("[CodeQuality]"))
+      assert_true(result.summary.contains("### CodeQuality"))
+      assert_true(result.summary.contains("### Performance"))
+      assert_true(result.summary.contains("### Security"))
+    }
     _ => fail("Expected Rejected")
   }
 }

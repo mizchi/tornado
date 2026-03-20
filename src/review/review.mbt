@@ -61,68 +61,10 @@ pub fn ReviewAgent::build_prompt(
   buf.write_string(agent_output)
   buf.write_string("\n\n")
   // Perspective-specific instructions
-  if self.lang == "ja" {
-    match perspective {
-      CodeQuality => {
-        buf.write_string("## レビュー観点: コード品質\n")
-        buf.write_string("以下の観点で評価してください:\n")
-        buf.write_string("- 可読性と命名規約\n")
-        buf.write_string("- 関心の分離\n")
-        buf.write_string("- エラーハンドリングの網羅性\n")
-        buf.write_string("- テストカバレッジと正確性\n")
-        buf.write_string("- コードの重複と不必要な複雑さ\n")
-        buf.write_string("- API 設計と公開インターフェースの明確さ\n")
-      }
-      Performance => {
-        buf.write_string("## レビュー観点: パフォーマンス\n")
-        buf.write_string("以下の観点で評価してください:\n")
-        buf.write_string("- アルゴリズムの計算量（時間・空間）\n")
-        buf.write_string("- 不要なメモリ確保やコピー\n")
-        buf.write_string("- N+1 クエリや冗長な I/O\n")
-        buf.write_string("- キャッシュの活用機会\n")
-        buf.write_string("- ホットパスの最適化\n")
-      }
-      Security => {
-        buf.write_string("## レビュー観点: セキュリティ\n")
-        buf.write_string("以下の観点で評価してください:\n")
-        buf.write_string("- 入力値のバリデーションとサニタイズ\n")
-        buf.write_string("- インジェクション脆弱性（コマンド、SQL、XSS）\n")
-        buf.write_string("- 認証・認可の不備\n")
-        buf.write_string("- 機密データの露出（シークレット、トークン、個人情報）\n")
-        buf.write_string("- 依存関係の安全性\n")
-      }
-    }
-  } else {
-    match perspective {
-      CodeQuality => {
-        buf.write_string("## Review Focus: Code Quality\n")
-        buf.write_string("Evaluate the following aspects:\n")
-        buf.write_string("- Readability and naming conventions\n")
-        buf.write_string("- Proper separation of concerns\n")
-        buf.write_string("- Error handling completeness\n")
-        buf.write_string("- Test coverage and correctness\n")
-        buf.write_string("- Code duplication and unnecessary complexity\n")
-        buf.write_string("- API design and public interface clarity\n")
-      }
-      Performance => {
-        buf.write_string("## Review Focus: Performance\n")
-        buf.write_string("Evaluate the following aspects:\n")
-        buf.write_string("- Algorithmic complexity (time and space)\n")
-        buf.write_string("- Unnecessary allocations or copies\n")
-        buf.write_string("- N+1 queries or redundant I/O\n")
-        buf.write_string("- Caching opportunities\n")
-        buf.write_string("- Hot path optimization\n")
-      }
-      Security => {
-        buf.write_string("## Review Focus: Security\n")
-        buf.write_string("Evaluate the following aspects:\n")
-        buf.write_string("- Input validation and sanitization\n")
-        buf.write_string("- Injection vulnerabilities (command, SQL, XSS)\n")
-        buf.write_string("- Authentication and authorization gaps\n")
-        buf.write_string("- Sensitive data exposure (secrets, tokens, PII)\n")
-        buf.write_string("- Dependency safety\n")
-      }
-    }
+  match perspective {
+    CodeQuality => buf.write_string(@prompts.code_quality_checklist(self.lang))
+    Performance => buf.write_string(@prompts.performance_checklist(self.lang))
+    Security => buf.write_string(@prompts.security_checklist(self.lang))
   }
   // TODO.md instruction — reviewer must NOT attempt to fix issues
   buf.write_string("\n\n")
@@ -202,12 +144,13 @@ pub fn ReviewAgent::review_perspective(
   on_event~ : (@types.AgentEvent) -> Unit = fn(_) {  },
 ) -> @types.ReviewResult {
   let task_output = task.result.unwrap_or("")
-  let prompt = self.build_prompt(perspective, task.description, task_output, context)
-  let system = if self.lang == "ja" {
-    "あなたは \{perspective} に焦点を当てたコードレビュアーです。簡潔かつ具体的に指摘してください。問題の修正は行わず、TODO リストとして書き出してください。"
-  } else {
-    "You are a code reviewer focusing on \{perspective}. Be concise and actionable. Do NOT fix issues — list them as TODOs."
-  }
+  let prompt = self.build_prompt(
+    perspective,
+    task.description,
+    task_output,
+    context,
+  )
+  let system = self.build_system_prompt(perspective)
   let output = backend.run(prompt, system, on_event)
   // If the review backend failed, reject rather than silently approving
   let verdict = match output.status {
@@ -232,22 +175,40 @@ pub fn ReviewAgent::review(
   context~ : String = "",
   on_event~ : (@types.AgentEvent) -> Unit = fn(_) {  },
 ) -> @types.ReviewResult {
+  let task_output = task.result.unwrap_or("")
+  let perspectives = self.perspectives()
+  let tasks : Array[(String, String)] = []
+  for perspective in perspectives {
+    tasks.push((
+      self.build_prompt(
+        perspective,
+        task.description,
+        task_output,
+        context,
+      ),
+      self.build_system_prompt(perspective),
+    ))
+  }
+  let outputs = @agent.run_parallel(backend, tasks, on_event)
   let all_items : Array[String] = []
   let summaries = StringBuilder::new()
   let mut rejected_reason : String? = None
-  let perspectives = self.perspectives()
-  for perspective in perspectives {
-    let result = self.review_perspective(
-      perspective, task, backend, context, on_event=on_event,
-    )
+  for i in 0..<perspectives.length() {
+    let perspective = perspectives[i]
+    let output = outputs[i]
     summaries.write_string("### \{perspective}\n")
-    summaries.write_string(result.summary)
+    summaries.write_string(output.content)
     summaries.write_string("\n\n")
-    match result.verdict {
-      Rejected(reason) => {
-        rejected_reason = Some("[\{perspective}] \{reason}")
-        break
-      }
+    let verdict = match output.status {
+      Failed(err) =>
+        @types.ReviewVerdict::Rejected("Review backend failed: \{err}")
+      _ => self.parse_verdict(output.content)
+    }
+    match verdict {
+      Rejected(reason) =>
+        if rejected_reason is None {
+          rejected_reason = Some("[\{perspective}] \{reason}")
+        }
       NeedsChanges(items) =>
         for item in items {
           all_items.push("[\{perspective}] \{item}")
@@ -273,6 +234,17 @@ pub fn ReviewAgent::review(
   }
   task.review = Some(merged)
   merged
+}
+
+fn ReviewAgent::build_system_prompt(
+  self : ReviewAgent,
+  perspective : ReviewPerspective,
+) -> String {
+  if self.lang == "ja" {
+    "あなたは \{perspective} に焦点を当てたコードレビュアーです。簡潔かつ具体的に指摘してください。問題の修正は行わず、TODO リストとして書き出してください。"
+  } else {
+    "You are a code reviewer focusing on \{perspective}. Be concise and actionable. Do NOT fix issues — list them as TODOs."
+  }
 }
 
 ///| Build review file content as markdown
