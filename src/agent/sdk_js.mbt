@@ -10,6 +10,12 @@ pub fn run_codex_sdk(opts_json : String) -> String {
   js_run_sdk("codex-runner.mjs", opts_json)
 }
 
+///| Run parallel SDK tasks via runner script
+///| Returns JSON array of JSONL output strings.
+pub fn run_parallel_sdk(opts_json : String) -> String {
+  js_run_sdk("parallel-runner.mjs", opts_json)
+}
+
 ///|
 extern "js" fn js_run_sdk(runner : String, opts_json : String) -> String =
   #|(runner, optsJson) => {

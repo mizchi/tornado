@@ -82,33 +82,7 @@ fn SubprocessBackend::run_claude_code(
     )
     return { content: "", status: @types.AgentStatus::Failed(err), error: Some(err) }
   }
-  // Parse JSONL output (single-pass: parse_sdk_event returns error status)
-  let buf = StringBuilder::new()
-  let line_buf = OutputLineBuffer::new()
-  let mut has_error = false
-  let error_buf = StringBuilder::new()
-  let lines = raw_output.split("\n")
-  for line_view in lines {
-    let line = line_view.to_string().trim().to_string()
-    if line.is_empty() {
-      continue
-    }
-    if self.parse_sdk_event(line, buf, line_buf, error_buf, on_output) {
-      has_error = true
-    }
-  }
-  line_buf.flush(fn(line) { on_output(@types.AgentEvent::OutputLine(line)) })
-  let content = buf.to_string()
-  if has_error {
-    let err = error_buf.to_string()
-    on_output(
-      @types.AgentEvent::StatusChange(@types.AgentStatus::Failed(err)),
-    )
-    { content, status: @types.AgentStatus::Failed(err), error: Some(err) }
-  } else {
-    on_output(@types.AgentEvent::StatusChange(@types.AgentStatus::Completed))
-    { content, status: Completed, error: None }
-  }
+  self.parse_sdk_output(raw_output, on_output)
 }
 
 ///| Parse a single SDK JSONL event line.
@@ -121,95 +95,19 @@ fn SubprocessBackend::parse_sdk_event(
   error_buf : StringBuilder,
   on_output : (@types.AgentEvent) -> Unit,
 ) -> Bool {
-  let json = @json.parse(line) catch { _ => return false }
-  match json {
-    Object(map) => {
-      // Extract session_id from any message
-      match map.get("session_id") {
-        Some(String(sid)) =>
-          if not(sid.is_empty()) && self.session_id != sid {
-            self.session_id = sid
-            on_output(@types.AgentEvent::SessionId(sid))
-          }
-        _ => ()
+  parse_sdk_event_line(
+    line,
+    buf,
+    line_buf,
+    error_buf,
+    on_output,
+    fn(sid) {
+      if self.session_id != sid {
+        self.session_id = sid
+        on_output(@types.AgentEvent::SessionId(sid))
       }
-      match map.get("type") {
-        Some(String(event_type)) =>
-          match event_type {
-            "system" => parse_system_event(map, on_output)
-            "assistant" => parse_tool_calls(map, on_output)
-            "stream_event" => {
-              // SDK wraps Anthropic streaming events in stream_event
-              match map.get("event") {
-                Some(Object(event)) =>
-                  self.parse_stream_event(event, buf, line_buf, on_output)
-                _ => ()
-              }
-            }
-            "tool_result" => parse_tool_result(map, on_output)
-            // CLI-compatible event types
-            "content_block_start" =>
-              parse_content_block_start(map, on_output)
-            "result" => {
-              parse_sdk_result_event(map, on_output)
-              // Check for error in the result event
-              match map.get("is_error") {
-                Some(True) => {
-                  match map.get("result") {
-                    Some(String(err_msg)) =>
-                      error_buf.write_string(err_msg)
-                    _ => ()
-                  }
-                  return true
-                }
-                _ => ()
-              }
-            }
-            _ => ()
-          }
-        _ => ()
-      }
-    }
-    _ => ()
-  }
-  false
-}
-
-///| Parse an SDK stream_event's inner Anthropic event
-fn SubprocessBackend::parse_stream_event(
-  _self : SubprocessBackend,
-  event : Map[String, Json],
-  buf : StringBuilder,
-  line_buf : OutputLineBuffer,
-  on_output : (@types.AgentEvent) -> Unit,
-) -> Unit {
-  match event.get("type") {
-    Some(String(event_type)) =>
-      match event_type {
-        "content_block_start" => parse_content_block_start(event, on_output)
-        "content_block_delta" => {
-          match event.get("delta") {
-            Some(Object(delta)) =>
-              match delta.get("type") {
-                Some(String("text_delta")) =>
-                  match delta.get("text") {
-                    Some(String(text)) => {
-                      buf.write_string(text)
-                      line_buf.push(text, fn(line) {
-                        on_output(@types.AgentEvent::OutputLine(line))
-                      })
-                    }
-                    _ => ()
-                  }
-                _ => ()
-              }
-            _ => ()
-          }
-        }
-        _ => ()
-      }
-    _ => ()
-  }
+    },
+  )
 }
 
 ///| Parse SDK result event (uses total_cost_usd instead of cost_usd)
@@ -343,7 +241,14 @@ fn SubprocessBackend::run_codex(
     )
     return { content: "", status: @types.AgentStatus::Failed(err), error: Some(err) }
   }
-  // Parse JSONL output (reuse the same parse_sdk_event format)
+  self.parse_sdk_output(raw_output, on_output)
+}
+
+fn SubprocessBackend::parse_sdk_output(
+  self : SubprocessBackend,
+  raw_output : String,
+  on_output : (@types.AgentEvent) -> Unit,
+) -> @types.AgentResult {
   let buf = StringBuilder::new()
   let line_buf = OutputLineBuffer::new()
   let mut has_error = false

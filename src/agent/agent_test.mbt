@@ -122,6 +122,37 @@ test "MockBackend name via boxed" {
   inspect(boxed.name(), content="mock")
 }
 
+test "run_parallel with MockBackend returns one result per task" {
+  let mock = @agent.MockBackend::new()
+  mock.add_response("task1", "result one")
+  mock.add_response("task2", "result two")
+  mock.add_response("task3", "result three")
+  let boxed = mock.boxed()
+  let results = @agent.run_parallel(
+    boxed,
+    [("task1", "sys1"), ("task2", "sys2"), ("task3", "sys3")],
+    fn(_) {  },
+  )
+  assert_true(results.length() == 3)
+  inspect(results[0].content, content="result one")
+  inspect(results[1].content, content="result two")
+  inspect(results[2].content, content="result three")
+}
+
+test "run_parallel with FailingMockBackend returns all failures" {
+  let mock = @agent.FailingMockBackend::new(error_msg="parallel failure")
+  let boxed = mock.boxed()
+  let results = @agent.run_parallel(
+    boxed,
+    [("task1", ""), ("task2", ""), ("task3", "")],
+    fn(_) {  },
+  )
+  assert_true(results.length() == 3)
+  inspect(results[0].status, content="Failed(\"parallel failure\")")
+  inspect(results[1].status, content="Failed(\"parallel failure\")")
+  inspect(results[2].status, content="Failed(\"parallel failure\")")
+}
+
 // ── parse_events.mbt tests ──────────────────────────────────
 
 ///| Helper: collect events into categorized arrays
