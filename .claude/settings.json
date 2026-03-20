@@ -8,6 +8,7 @@
     }
   },
   "enabledPlugins": {
+    "everything-claude-code@everything-claude-code": true,
     "security-guidance@claude-plugins-official": true,
     "magna@magna-marketplace": true
   }
