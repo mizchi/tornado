@@ -1,4 +1,5 @@
-///| Truncate long text for display, adding "..." if truncated
+///|
+/// Truncate long text for display, adding "..." if truncated
 pub fn truncate(s : String, max : Int) -> String {
   if s.length() <= max {
     s
@@ -7,7 +8,129 @@ pub fn truncate(s : String, max : Int) -> String {
   }
 }
 
-///| Count lines in a string. An empty string has 0 lines.
+///| Normalize provider-specific UI chrome to plain TUI-style log lines.
+
+///|
+/// Returns None for blank lines and visual separators.
+pub fn format_agent_output_line(line : String) -> String? {
+  let trimmed = line.trim().to_string()
+  if trimmed.is_empty() || is_separator_line(trimmed) {
+    return None
+  }
+  let normalized = strip_provider_prefix(trimmed)
+  if normalized.is_empty() {
+    None
+  } else {
+    Some(normalized)
+  }
+}
+
+///|
+/// Format a normalized agent panel entry, including the leading agent label.
+pub fn format_agent_panel_entry(agent_id : String, line : String) -> String? {
+  match format_agent_output_line(line) {
+    Some(formatted) => Some("  [\{agent_id}] \{formatted}")
+    None => None
+  }
+}
+
+///|
+/// Format a task start entry for the agent panel.
+pub fn format_task_start_line(task_id : String, desc : String) -> String {
+  "[\{task_id}] Starting: \{desc}"
+}
+
+///|
+/// Format a task assignment entry for the agent panel.
+pub fn format_task_assign_line(task_id : String) -> String {
+  "[\{task_id}] Assigned"
+}
+
+///|
+/// Format a review start entry for the agent panel.
+pub fn format_review_start_line(task_id : String) -> String {
+  "[\{task_id}] Review starting"
+}
+
+///|
+/// Format a task completion entry for the orchestrator log.
+pub fn format_task_complete_line(task_id : String, status : String) -> String {
+  "Task \{task_id} -> \{status}"
+}
+
+///|
+/// Format a review completion entry for the orchestrator log.
+pub fn format_review_complete_line(
+  task_id : String,
+  verdict : String,
+) -> String {
+  "Review \{task_id}: \{verdict}"
+}
+
+///|
+/// Format a phase change entry for the orchestrator log.
+pub fn format_phase_change_line(phase : String) -> String {
+  "Phase: \{phase}"
+}
+
+///|
+/// Format the session completion entry for the orchestrator log.
+pub fn format_session_complete_line() -> String {
+  "[session complete]"
+}
+
+///|
+/// Format a non-agent CLI log line in a plain TUI-like style.
+pub fn format_cli_log_line(level : String, msg : String) -> String {
+  match level {
+    "WARN" => "Warning: \{msg}"
+    "ERROR" => "Error: \{msg}"
+    "USAGE" => "Usage: \{msg}"
+    "INFO"
+    | "BOOT"
+    | "RESUME"
+    | "HEARTBEAT"
+    | "SUMMARY"
+    | "REVIEW"
+    | "DEV"
+    | "SESSION"
+    | "SKIP"
+    | "EXIT"
+    | "USER" => msg
+    _ => "[\{level}] \{msg}"
+  }
+}
+
+///|
+fn strip_provider_prefix(line : String) -> String {
+  let chars = line.to_array()
+  if chars.length() >= 2 && is_provider_marker(chars[0]) && chars[1] == ' ' {
+    return String::from_array(chars[2:]).trim().to_string()
+  }
+  line
+}
+
+///|
+fn is_provider_marker(ch : Char) -> Bool {
+  ch == '⏺' || ch == '•' || ch == '└'
+}
+
+///|
+fn is_separator_line(line : String) -> Bool {
+  let chars = line.to_array()
+  if chars.length() < 8 {
+    return false
+  }
+  for ch in chars {
+    if ch != '─' && ch != '-' && ch != '=' {
+      return false
+    }
+  }
+  true
+}
+
+///|
+/// Count lines in a string. An empty string has 0 lines.
 pub fn count_lines(s : String) -> Int {
   if s.is_empty() {
     return 0
@@ -26,7 +149,9 @@ pub fn count_lines(s : String) -> Int {
 }
 
 ///| Format a tool call for human-readable display.
-///| Parses the JSON input to extract key fields per tool type.
+
+///|
+/// Parses the JSON input to extract key fields per tool type.
 pub fn format_tool_call(name : String, input_json : String) -> String {
   let json = @json.parse(input_json) catch {
     _ => return "\{name}(\{truncate(input_json, 100)})"
@@ -110,7 +235,9 @@ pub fn format_tool_call(name : String, input_json : String) -> String {
 }
 
 ///| Format a tool result for human-readable display.
-///| Shows line count for Read/Bash, truncated content for others.
+
+///|
+/// Shows line count for Read/Bash, truncated content for others.
 pub fn format_tool_result(name : String, output : String) -> String {
   match name {
     "Read" => {

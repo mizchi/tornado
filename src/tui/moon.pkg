@@ -1,0 +1,9 @@
+import {
+  "mizchi/tornado/types",
+  "mizchi/tornado/display",
+  "mizchi/tui/vnode",
+}
+
+options(
+  "supported-targets": "js",
+)

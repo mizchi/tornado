@@ -1,8 +1,10 @@
+///|
 test "TuiState::new starts empty" {
   let state = @tui.TuiState::new()
   assert_true(state.active_session() is None)
 }
 
+///|
 test "TuiState::add_session" {
   let state = @tui.TuiState::new()
   let session = @types.Session::new("s1", "task", [])
@@ -10,6 +12,7 @@ test "TuiState::add_session" {
   assert_true(state.active_session() is Some(_))
 }
 
+///|
 test "TuiState::append_log and get_logs" {
   let state = @tui.TuiState::new()
   state.append_log("agent-1", "line 1")
@@ -20,6 +23,7 @@ test "TuiState::append_log and get_logs" {
   inspect(logs[1], content="line 2")
 }
 
+///|
 test "TuiState::get_logs respects max_lines" {
   let state = @tui.TuiState::new()
   for i = 0; i < 30; i = i + 1 {
@@ -30,6 +34,7 @@ test "TuiState::get_logs respects max_lines" {
   inspect(logs[0], content="line 25")
 }
 
+///|
 test "TuiState::next_tab and prev_tab" {
   let state = @tui.TuiState::new()
   let agents : Array[@types.AgentConfig] = [
@@ -58,11 +63,14 @@ test "TuiState::next_tab and prev_tab" {
   state.next_tab()
   assert_true(state.active_tab == 1)
   state.next_tab()
+  assert_true(state.active_tab == 2) // orchestrator tab
+  state.next_tab()
   assert_true(state.active_tab == 0) // wrap around
   state.prev_tab()
-  assert_true(state.active_tab == 1) // wrap around backwards
+  assert_true(state.active_tab == 2) // wrap around backwards
 }
 
+///|
 test "TuiState::make_callbacks logs all events" {
   let state = @tui.TuiState::new()
   let cb = state.make_callbacks()
@@ -74,28 +82,48 @@ test "TuiState::make_callbacks logs all events" {
   // on_phase_change → phase_log
   (cb.on_phase_change)("s1", @types.OrchestratorPhase::Executing)
   assert_true(state.phase_log.length() == 1)
+  inspect(state.phase_log[0], content="Phase: Executing")
   // on_task_start → agent logs
   (cb.on_task_start)("t1", "build API", "a1")
   let logs2 = state.get_logs("a1")
   assert_true(logs2.length() == 2)
-  assert_true(logs2[1].contains("[t1]"))
-  assert_true(logs2[1].contains("build API"))
+  inspect(logs2[1], content="[t1] Starting: build API")
   // on_task_complete → phase_log
   (cb.on_task_complete)("t1", "done")
-  assert_true(state.phase_log.iter().any(fn(e) { e.contains("Task t1") }))
+  inspect(state.phase_log[1], content="Task t1 -> done")
   // on_task_assign → agent logs
   (cb.on_task_assign)("t2", "a1")
   let logs3 = state.get_logs("a1")
-  assert_true(logs3.iter().any(fn(e) { e.contains("[t2]") && e.contains("Assigned") }))
+  inspect(logs3[2], content="[t2] Assigned")
   // on_review_start → reviewer logs
   (cb.on_review_start)("t1", "r1")
   let rlogs = state.get_logs("r1")
-  assert_true(rlogs.iter().any(fn(e) { e.contains("Review starting") }))
+  inspect(rlogs[0], content="[t1] Review starting")
   // on_info → phase_log
   (cb.on_info)("something happened")
-  assert_true(state.phase_log.iter().any(fn(e) { e.contains("something happened") }))
+  assert_true(
+    state.phase_log.iter().any(fn(e) { e.contains("something happened") }),
+  )
 }
 
+///|
+test "TuiState::make_callbacks normalizes provider-specific output lines" {
+  let state = @tui.TuiState::new()
+  let cb = state.make_callbacks()
+  (cb.on_agent_output)("a1", "⏺ 分析結果をまとめます。")
+  (cb.on_agent_output)(
+    "a1", "• Ran \"/bin/zsh -lc 'moon check --target js'\"",
+  )
+  (cb.on_agent_output)(
+    "a1", "────────────────────────",
+  )
+  let logs = state.get_logs("a1")
+  assert_true(logs.length() == 2)
+  inspect(logs[0], content="分析結果をまとめます。")
+  inspect(logs[1], content="Ran \"/bin/zsh -lc 'moon check --target js'\"")
+}
+
+///|
 test "TuiState::make_callbacks surfaces task failure" {
   let state = @tui.TuiState::new()
   let cb = state.make_callbacks()
@@ -104,15 +132,16 @@ test "TuiState::make_callbacks surfaces task failure" {
   (cb.on_task_complete)("t1", "failed: connection refused")
   // Task failure should be visible in phase_log
   assert_true(
-    state.phase_log.iter().any(fn(e) {
-      e.contains("failed") && e.contains("t1")
-    }),
+    state.phase_log
+    .iter()
+    .any(fn(e) { e.contains("failed") && e.contains("t1") }),
   )
   // Agent log should show the task started
   let logs = state.get_logs("dev-1")
   assert_true(logs.iter().any(fn(e) { e.contains("deploy") }))
 }
 
+///|
 test "render_app with no session" {
   let state = @tui.TuiState::new()
   let node = @tui.render_app(state)
@@ -120,6 +149,7 @@ test "render_app with no session" {
   assert_true(output.length() > 0)
 }
 
+///|
 test "render_app with session" {
   let state = @tui.TuiState::new()
   let agents : Array[@types.AgentConfig] = [
@@ -139,4 +169,31 @@ test "render_app with session" {
   let node = @tui.render_app(state)
   let output = @vnode.render_vnode_once(80, 24, node)
   assert_true(output.length() > 0)
+}
+
+///|
+test "render_app with orchestrator tab shows phase log" {
+  let state = @tui.TuiState::new()
+  let agents : Array[@types.AgentConfig] = [
+    {
+      id: "dev-1",
+      kind: ClaudeCode,
+      role: Dev,
+      model: None,
+      system_prompt: None,
+      working_dir: ".",
+      max_iterations: 10,
+    },
+  ]
+  let session = @types.Session::new("s1", "build api", agents)
+  state.add_session(session)
+  state.phase_log.push("Phase: Executing")
+  state.phase_log.push("Task t1 -> done")
+  state.next_tab()
+  let node = @tui.render_app(state)
+  let output = @vnode.render_vnode_once(80, 24, node)
+  assert_true(output.contains("[orchestrator]"))
+  assert_true(output.contains("Orchestrator"))
+  assert_true(output.contains("Phase: Executing"))
+  assert_true(output.contains("Task t1 -> done"))
 }

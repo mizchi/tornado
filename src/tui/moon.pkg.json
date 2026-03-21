@@ -1,6 +1,0 @@
-{
-  "import": [
-    "mizchi/tornado/types",
-    "mizchi/tui/vnode"
-  ]
-}

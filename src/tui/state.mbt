@@ -1,4 +1,5 @@
-///| TUI application state
+///|
+/// TUI application state
 pub struct TuiState {
   sessions : Map[String, @types.Session]
   mut active_session_id : String
@@ -7,16 +8,21 @@ pub struct TuiState {
   phase_log : Array[String]
 }
 
-///| Create a new TuiState
+///|
+/// Create a new TuiState
 pub fn TuiState::new() -> TuiState {
-  { sessions: {}, active_session_id: "", active_tab: 0, agent_logs: {}, phase_log: [] }
+  {
+    sessions: {},
+    active_session_id: "",
+    active_tab: 0,
+    agent_logs: {},
+    phase_log: [],
+  }
 }
 
-///| Add a session
-pub fn TuiState::add_session(
-  self : TuiState,
-  session : @types.Session,
-) -> Unit {
+///|
+/// Add a session
+pub fn TuiState::add_session(self : TuiState, session : @types.Session) -> Unit {
   self.sessions[session.id] = session
   if self.active_session_id.is_empty() {
     self.active_session_id = session.id
@@ -27,12 +33,14 @@ pub fn TuiState::add_session(
   }
 }
 
-///| Get the active session
+///|
+/// Get the active session
 pub fn TuiState::active_session(self : TuiState) -> @types.Session? {
   self.sessions.get(self.active_session_id)
 }
 
-///| Append a log line for an agent
+///|
+/// Append a log line for an agent
 pub fn TuiState::append_log(
   self : TuiState,
   agent_id : String,
@@ -47,7 +55,8 @@ pub fn TuiState::append_log(
   }
 }
 
-///| Get logs for an agent (last N lines)
+///|
+/// Get logs for an agent (last N lines)
 pub fn TuiState::get_logs(
   self : TuiState,
   agent_id : String,
@@ -70,11 +79,12 @@ pub fn TuiState::get_logs(
   }
 }
 
-///| Switch to next tab
+///|
+/// Switch to next tab
 pub fn TuiState::next_tab(self : TuiState) -> Unit {
   match self.active_session() {
     Some(session) => {
-      let count = session.agents.length()
+      let count = session.agents.length() + 1
       if count > 0 {
         self.active_tab = (self.active_tab + 1) % count
       }
@@ -83,11 +93,12 @@ pub fn TuiState::next_tab(self : TuiState) -> Unit {
   }
 }
 
-///| Switch to previous tab
+///|
+/// Switch to previous tab
 pub fn TuiState::prev_tab(self : TuiState) -> Unit {
   match self.active_session() {
     Some(session) => {
-      let count = session.agents.length()
+      let count = session.agents.length() + 1
       if count > 0 {
         self.active_tab = (self.active_tab + count - 1) % count
       }
@@ -97,35 +108,44 @@ pub fn TuiState::prev_tab(self : TuiState) -> Unit {
 }
 
 ///| Create OrchestratorCallbacks that update TuiState.
-///| All callbacks are wired to produce visible log output — no silent no-ops.
+
+///|
+/// All callbacks are wired to produce visible log output — no silent no-ops.
 pub fn TuiState::make_callbacks(
   self : TuiState,
 ) -> @types.OrchestratorCallbacks {
   {
-    on_agent_output: fn(agent_id, line) { self.append_log(agent_id, line) },
+    on_agent_output: fn(agent_id, line) {
+      match @display.format_agent_output_line(line) {
+        Some(formatted) => self.append_log(agent_id, formatted)
+        None => ()
+      }
+    },
     on_agent_complete: fn(agent_id, _result) {
       self.append_log(agent_id, "[completed]")
     },
     on_task_start: fn(task_id, desc, agent_id) {
-      self.append_log(agent_id, "[\{task_id}] Starting: \{desc}")
+      self.append_log(agent_id, @display.format_task_start_line(task_id, desc))
     },
     on_task_complete: fn(task_id, status) {
-      self.phase_log.push("Task \{task_id}: \{status}")
+      self.phase_log.push(@display.format_task_complete_line(task_id, status))
     },
     on_task_assign: fn(task_id, agent_id) {
-      self.append_log(agent_id, "[\{task_id}] Assigned")
+      self.append_log(agent_id, @display.format_task_assign_line(task_id))
     },
     on_review_start: fn(task_id, reviewer_id) {
-      self.append_log(reviewer_id, "[\{task_id}] Review starting")
+      self.append_log(reviewer_id, @display.format_review_start_line(task_id))
     },
     on_review_complete: fn(task_id, verdict) {
-      self.phase_log.push("Review \{task_id}: \{verdict}")
+      self.phase_log.push(
+        @display.format_review_complete_line(task_id, "\{verdict}"),
+      )
     },
     on_phase_change: fn(_session_id, phase) {
-      self.phase_log.push("Phase: \{phase}")
+      self.phase_log.push(@display.format_phase_change_line("\{phase}"))
     },
     on_session_complete: fn(_session_id) {
-      self.phase_log.push("[session complete]")
+      self.phase_log.push(@display.format_session_complete_line())
     },
     on_info: fn(msg) { self.phase_log.push(msg) },
   }

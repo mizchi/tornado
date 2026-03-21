@@ -1,8 +1,10 @@
 // ── Session state file: .tornado/session.json ──
 
+///|
 let session_file : String = ".tornado/session.json"
 
-///| Detect language from LANG environment variable
+///|
+/// Detect language from LANG environment variable
 fn detect_lang() -> String {
   let env_lang = get_env("LANG")
   if env_lang.contains("ja") {
@@ -12,7 +14,8 @@ fn detect_lang() -> String {
   }
 }
 
-///| Resolve --lang flag: None/"auto" → detect, otherwise use as-is
+///|
+/// Resolve --lang flag: None/"auto" → detect, otherwise use as-is
 fn resolve_lang(cli_lang : String?) -> String {
   match cli_lang {
     None => detect_lang()
@@ -21,20 +24,21 @@ fn resolve_lang(cli_lang : String?) -> String {
   }
 }
 
+///|
 fn main {
   let args = @sys.get_cli_args()
   let command = @cli.parse_cli_args(args, is_existing_file)
   match command {
     @cli.CliCommand::Run(
-      config_path=config_path,
-      plan_path=plan_path,
-      dev_kind=dev_kind,
-      review_kind=review_kind,
-      review_interval=review_interval,
-      rlm=rlm,
-      ralph=ralph,
+      config_path~,
+      plan_path~,
+      dev_kind~,
+      review_kind~,
+      review_interval~,
+      rlm~,
+      ralph~,
       lang=cli_lang,
-      warnings=warnings,
+      warnings~
     ) => {
       for w in warnings {
         log("WARN", w)
@@ -45,13 +49,7 @@ fn main {
       } else {
         let initial_task = load_plan_task(plan_path)
         run_repl(
-          config_path,
-          plan_path,
-          rlm,
-          initial_task,
-          dev_kind,
-          review_kind,
-          review_interval,
+          config_path, plan_path, rlm, initial_task, dev_kind, review_kind, review_interval,
           lang,
         )
       }
@@ -73,14 +71,14 @@ fn print_usage() -> Unit {
   println(
     "  tornado <plan.md> [--dev=codex] [--review=claude]  # start from plan file",
   )
-  println(
-    "  tornado --config=tornado.json [--dev=codex] [--review=claude]",
-  )
+  println("  tornado --config=tornado.json [--dev=codex] [--review=claude]")
   println(
     "  tornado                    # start with preset (dev:claude-code, review:codex)",
   )
   println("  tornado --dev=codex --review=claude")
-  println("  tornado --review-interval=3          # review every 3 dev iterations")
+  println(
+    "  tornado --review-interval=3          # review every 3 dev iterations",
+  )
   println("  tornado --rlm TODO.md                # improvement loop mode")
   println(
     "  tornado --ralph                      # ralph loop (milestone-based autonomous dev)",
@@ -91,18 +89,40 @@ fn print_usage() -> Unit {
   println("")
   println("Options:")
   println("  --review-interval=N  Run N dev iterations per review (default: 1)")
-  println("  --rlm                Enable improvement loop mode (measure→improve→verify→commit/revert)")
+  println(
+    "  --rlm                Enable improvement loop mode (measure→improve→verify→commit/revert)",
+  )
   println(
     "  --ralph              Enable ralph loop mode (milestone→plan→execute→verify)",
   )
-  println("  --lang=auto|ja|en    Review language (default: auto, detected from LANG env)")
+  println(
+    "  --lang=auto|ja|en    Review language (default: auto, detected from LANG env)",
+  )
+  println("")
+  println("Ralph mode (milestone-based autonomous development):")
+  println(
+    "  tornado --ralph                      # auto-design milestones, confirm, then execute",
+  )
+  println("  tornado --ralph --config=ralph.json  # use custom config")
+  println(
+    "  tornado --ralph --dev=codex          # override builder agent kind",
+  )
+  println("")
+  println(
+    "  Agents: planner (claude-code), builder (claude-code), verifier (codex)",
+  )
+  println(
+    "  Flow: design milestones → user confirmation → plan → execute → verify per wave",
+  )
+  println("  Milestones saved to .tornado/milestones.json for resume.")
   println("")
   println("Autonomous heartbeat: dev runs → reviewer reviews →")
   println("dev continues with next task → forever until Ctrl+C.")
   println("Session auto-saved to .tornado/session.json for resume.")
 }
 
-///| Run ralph loop mode
+///|
+/// Run ralph loop mode
 fn run_ralph(
   config_path : String?,
   lang : String,
@@ -121,10 +141,7 @@ fn run_ralph(
       try {
         let parsed = @config.ProjectConfig::from_json_string(content)
         // Apply ralph_enabled override
-        {
-          ..parsed,
-          ralph_enabled: true,
-        }
+        { ..parsed, ralph_enabled: true }
       } catch {
         err => {
           log("ERROR", "Failed to parse config: \{err}")
@@ -159,9 +176,7 @@ fn run_ralph(
       log("WARN", "Could not read milestones file, starting fresh")
       @ralph.MilestoneManager::new()
     } else {
-      try {
-        @ralph.MilestoneManager::load_from_json(content)
-      } catch {
+      @ralph.MilestoneManager::load_from_json(content) catch {
         err => {
           log("WARN", "Could not parse milestones file: \{err}, starting fresh")
           @ralph.MilestoneManager::new()
@@ -174,28 +189,88 @@ fn run_ralph(
     @ralph.MilestoneManager::new()
   }
   if mgr.milestones.is_empty() {
-    log("WARN", "No milestones defined. Create \{milestones_path} first.")
-    return
+    log(
+      "INFO", "No milestones found. Designing milestones from project context...",
+    )
+    let planner_id = match
+      find_agent_id(config.agents, @types.AgentRole::Planner) {
+      Some(id) => id
+      None => {
+        log("ERROR", "No planner agent configured")
+        return
+      }
+    }
+    let planner_backend = match backends.get(planner_id) {
+      Some(b) => b
+      None => {
+        log("ERROR", "Planner backend not found: \{planner_id}")
+        return
+      }
+    }
+    let project_context = gather_review_context()
+    let planner = @ralph.PlannerAgent::new(agent_id=planner_id, lang~)
+    let designed = planner.design_milestones(
+      planner_backend,
+      project_context,
+      mgr,
+      on_event=fn(event) {
+        match event {
+          @types.AgentEvent::Info(msg) => log("INFO", "\{planner_id}: \{msg}")
+          _ => ()
+        }
+      },
+    )
+    if designed.is_empty() {
+      log(
+        "WARN",
+        "Planner could not design milestones. Create \{milestones_path} manually.",
+      )
+      return
+    }
+    println("")
+    println("Designed milestones:")
+    for m in designed {
+      println("  \{m.id}: \{m.goal}")
+    }
+    println("")
+    let answer = prompt_sync("Proceed with these milestones? [Y/n] ")
+    if answer == "n" || answer == "N" {
+      log("INFO", "Aborted by user.")
+      return
+    }
+    mgr.add_milestones(designed)
+    // Save designed milestones immediately
+    let json = mgr.to_json()
+    write_file_sync(milestones_path, json)
+    log("INFO", "Milestones saved to \{milestones_path}")
   }
   // Create callbacks
   let callbacks : @types.OrchestratorCallbacks = {
-    on_agent_output: fn(id, line) { log("OUT", "[\{id}] \{line}") },
-    on_agent_complete: fn(id, _result) { log("INFO", "Agent \{id} complete") },
+    on_agent_output: fn(id, line) { print_agent_output_line(id, line) },
+    on_agent_complete: fn(id, _result) {
+      print_agent_output_line(id, "[completed]")
+    },
     on_task_start: fn(tid, desc, aid) {
-      log("INFO", "Task \{tid}: \{desc} (agent: \{aid})")
+      print_agent_output_line(aid, @display.format_task_start_line(tid, desc))
     },
     on_task_complete: fn(tid, status) {
-      log("INFO", "Task \{tid} → \{status}")
+      log("INFO", @display.format_task_complete_line(tid, status))
     },
-    on_task_assign: fn(tid, aid) { log("INFO", "Assigned \{tid} → \{aid}") },
+    on_task_assign: fn(tid, aid) {
+      print_agent_output_line(aid, @display.format_task_assign_line(tid))
+    },
     on_review_start: fn(tid, rid) {
-      log("INFO", "Review \{tid} by \{rid}")
+      print_agent_output_line(rid, @display.format_review_start_line(tid))
     },
     on_review_complete: fn(tid, verdict) {
-      log("INFO", "Review \{tid}: \{verdict}")
+      log("INFO", @display.format_review_complete_line(tid, "\{verdict}"))
     },
-    on_phase_change: fn(_sid, phase) { log("INFO", "Phase: \{phase}") },
-    on_session_complete: fn(_sid) { log("INFO", "Session complete") },
+    on_phase_change: fn(_sid, phase) {
+      log("INFO", @display.format_phase_change_line("\{phase}"))
+    },
+    on_session_complete: fn(_sid) {
+      log("INFO", @display.format_session_complete_line())
+    },
     on_info: fn(msg) { log("INFO", msg) },
   }
   // Run ralph loop
@@ -207,11 +282,13 @@ fn run_ralph(
   log("INFO", "Milestones saved to \{milestones_path}")
 }
 
+///|
 fn is_existing_file(path : String) -> Bool {
   let content = read_file_sync(path)
   not(content.has_prefix("ERROR:"))
 }
 
+///|
 fn load_plan_task(plan_path : String?) -> String? {
   match plan_path {
     Some(path) => {
@@ -232,7 +309,8 @@ fn load_plan_task(plan_path : String?) -> String? {
   }
 }
 
-///| Load config from file, or use preset
+///|
+/// Load config from file, or use preset
 fn load_config(config_path : String?) -> @config.ProjectConfig {
   match config_path {
     Some(path) => {
@@ -242,9 +320,7 @@ fn load_config(config_path : String?) -> @config.ProjectConfig {
         log("WARN", "Falling back to preset config")
         return @config.ProjectConfig::preset_default()
       }
-      try {
-        @config.ProjectConfig::from_json_string(content)
-      } catch {
+      @config.ProjectConfig::from_json_string(content) catch {
         err => {
           log("WARN", "Invalid config: \{err}, using preset")
           @config.ProjectConfig::preset_default()
@@ -255,37 +331,48 @@ fn load_config(config_path : String?) -> @config.ProjectConfig {
   }
 }
 
-///| Timestamped log with ANSI color coding by level
+///|
+/// Timestamped log with ANSI color coding by level
 fn log(level : String, msg : String) -> Unit {
-  let ts = now_timestamp()
+  let line = @display.format_cli_log_line(level, msg)
   let color = match level {
-    "CALL" => "\u001b[90m"
-    "DONE" => "\u001b[36m"
     "ERROR" => "\u001b[31m"
     "WARN" => "\u001b[33m"
     "HEARTBEAT" => "\u001b[1m"
     _ => ""
   }
   if color.is_empty() {
-    println("[\{ts}] [\{level}] \{msg}")
+    println(line)
   } else {
-    println("\{color}[\{ts}] [\{level}] \{msg}\u001b[0m")
+    println("\{color}\{line}\u001b[0m")
   }
 }
 
-///| Delegate to @display module
+///|
+/// Delegate to @display module
 fn truncate(s : String, max : Int) -> String {
   @display.truncate(s, max)
 }
 
-///| Delegate to @display module
+///|
+/// Delegate to @display module
 fn format_tool_call(name : String, input_json : String) -> String {
   @display.format_tool_call(name, input_json)
 }
 
-///| Delegate to @display module
+///|
+/// Delegate to @display module
 fn format_tool_result(name : String, output : String) -> String {
   @display.format_tool_result(name, output)
+}
+
+///|
+/// Print a single agent output line in the same plain style as the TUI log panel.
+fn print_agent_output_line(agent_id : String, line : String) -> Unit {
+  match @display.format_agent_panel_entry(agent_id, line) {
+    Some(formatted) => println(formatted)
+    None => ()
+  }
 }
 
 ///|
@@ -295,9 +382,7 @@ fn run_validate(config_path : String) -> Unit {
     println("Failed to read config: \{content}")
     return
   }
-  let config = try {
-    @config.ProjectConfig::from_json_string(content)
-  } catch {
+  let config = @config.ProjectConfig::from_json_string(content) catch {
     err => {
       println("Invalid config: \{err}")
       return
@@ -324,7 +409,8 @@ fn run_validate(config_path : String) -> Unit {
 
 // ── Session persistence ──────────────────────────────────────
 
-///| Persisted session state
+///|
+/// Persisted session state
 struct SessionState {
   iteration : Int
   phase : String // "dev" | "review" | "idle"
@@ -336,7 +422,8 @@ struct SessionState {
   accumulated_dev_outputs : Array[String]
 }
 
-///| Save session state to .tornado/session.json
+///|
+/// Save session state to .tornado/session.json
 fn save_session(state : SessionState) -> Unit {
   let sessions_map : Map[String, Json] = {}
   for entry in state.agent_sessions {
@@ -356,7 +443,8 @@ fn save_session(state : SessionState) -> Unit {
   write_file_sync(session_file, json.stringify())
 }
 
-///| Load session state from disk
+///|
+/// Load session state from disk
 fn load_session() -> SessionState? {
   let content = read_file_sync(session_file)
   if content.has_prefix("ERROR:") {
@@ -411,39 +499,34 @@ fn load_session() -> SessionState? {
           }
         _ => ()
       }
-      Some(
-        {
-          iteration,
-          phase,
-          task,
-          dev_output,
-          review_summary,
-          agent_sessions,
-          dev_since_review,
-          accumulated_dev_outputs,
-        },
-      )
+      Some({
+        iteration,
+        phase,
+        task,
+        dev_output,
+        review_summary,
+        agent_sessions,
+        dev_since_review,
+        accumulated_dev_outputs,
+      })
     }
     _ => None
   }
 }
 
-///| Clear saved session
+///|
+/// Clear saved session
 fn clear_session() -> Unit {
   ignore(exec_sync("rm -f \{session_file}"))
 }
 
 // ── Initial task builder ─────────────────────────────────────
 
-///| Build initial task by reading TODO files in the project
+///|
+/// Build initial task by reading TODO files in the project
 fn build_initial_task_from_todos() -> String {
   let todo_files = [
-    "TODO.md",
-    "Agents-todo.md",
-    "AGENTS-TODO.md",
-    "agents-todo.md",
-    "TODO",
-    "todo.md",
+    "TODO.md", "Agents-todo.md", "AGENTS-TODO.md", "agents-todo.md", "TODO", "todo.md",
   ]
   let buf = StringBuilder::new()
   buf.write_string(
@@ -484,7 +567,8 @@ fn build_initial_task_from_todos() -> String {
 
 // ── Plan file task builder ───────────────────────────────────
 
-///| Derive archive path: "TODO.md" → "TODO.archive.md", "plan" → "plan.archive.md"
+///|
+/// Derive archive path: "TODO.md" → "TODO.archive.md", "plan" → "plan.archive.md"
 fn derive_archive_path(plan_path : String) -> String {
   if plan_path.has_suffix(".md") && plan_path.length() > 3 {
     let buf = StringBuilder::new()
@@ -504,13 +588,12 @@ fn derive_archive_path(plan_path : String) -> String {
   }
 }
 
-///| Build a task prompt that directs the agent to read/write the plan file
+///|
+/// Build a task prompt that directs the agent to read/write the plan file
 fn build_plan_file_task(plan_path : String, review_summary : String) -> String {
   let context = gather_review_context()
   let buf = StringBuilder::new()
-  buf.write_string(
-    "You are in an autonomous development loop.\n\n",
-  )
+  buf.write_string("You are in an autonomous development loop.\n\n")
   buf.write_string("## Plan File: \{plan_path}\n")
   buf.write_string("Read this file to see your current task list.\n\n")
   buf.write_string("## Instructions\n")
@@ -540,7 +623,8 @@ fn build_plan_file_task(plan_path : String, review_summary : String) -> String {
 
 // ── Join accumulated dev outputs ─────────────────────────────
 
-///| Combine multiple dev outputs into a structured summary
+///|
+/// Combine multiple dev outputs into a structured summary
 fn join_dev_outputs(outputs : Array[String]) -> String {
   let buf = StringBuilder::new()
   let mut i = 0
@@ -555,12 +639,13 @@ fn join_dev_outputs(outputs : Array[String]) -> String {
 
 // ── Improvement loop task builder (RLM) ─────────────────────
 
-///| Build improvement loop prompt for --rlm mode
+///|
+/// Build improvement loop prompt for --rlm mode
 fn build_improvement_task(
   prev_output : String,
   current_step : Int,
   total_steps : Int,
-  cycle_summary~ : String = "",
+  cycle_summary? : String = "",
 ) -> String {
   let context = gather_review_context()
   let buf = StringBuilder::new()
@@ -596,7 +681,9 @@ fn build_improvement_task(
   buf.write_string(
     "4. **Commit or Revert**: If acceptable, commit with descriptive message. Otherwise `git checkout .`\n",
   )
-  buf.write_string("5. **Report**: Output a structured summary in this format:\n\n")
+  buf.write_string(
+    "5. **Report**: Output a structured summary in this format:\n\n",
+  )
   buf.write_string("```\n")
   buf.write_string("IMPROVEMENT_REPORT:\n")
   buf.write_string("  type: <fix|test|refactor|optimize>\n")
@@ -610,7 +697,8 @@ fn build_improvement_task(
 
 // ── Cycle summary builder ────────────────────────────────────
 
-///| Build a human-readable summary of what happened in this cycle
+///|
+/// Build a human-readable summary of what happened in this cycle
 fn build_cycle_summary(
   iteration : Int,
   dev_outputs : Array[String],
@@ -635,28 +723,35 @@ fn build_cycle_summary(
 
 // ── Next task router ─────────────────────────────────────────
 
-///| Build the next dev task based on plan/rlm mode
+///|
+/// Build the next dev task based on plan/rlm mode
 fn build_next_task(
   plan_path : String?,
   rlm : Bool,
   review_summary : String,
   prev_output : String,
-  current_step~ : Int = 1,
-  total_steps~ : Int = 1,
-  cycle_summary~ : String = "",
+  current_step? : Int = 1,
+  total_steps? : Int = 1,
+  cycle_summary? : String = "",
 ) -> String {
   match (plan_path, rlm) {
     (Some(path), true) => {
       let base = build_plan_file_task(path, review_summary)
       let improvement = build_improvement_task(
-        prev_output, current_step, total_steps, cycle_summary~,
+        prev_output,
+        current_step,
+        total_steps,
+        cycle_summary~,
       )
       base + "\n\n" + improvement
     }
     (Some(path), false) => build_plan_file_task(path, review_summary)
     (None, true) =>
       build_improvement_task(
-        prev_output, current_step, total_steps, cycle_summary~,
+        prev_output,
+        current_step,
+        total_steps,
+        cycle_summary~,
       )
     (None, false) => build_continuation_task(prev_output, review_summary)
   }
@@ -664,7 +759,8 @@ fn build_next_task(
 
 // ── Continuation task builder ────────────────────────────────
 
-///| Build a continuation task for the dev agent after review approval
+///|
+/// Build a continuation task for the dev agent after review approval
 fn build_continuation_task(
   prev_task : String,
   review_summary : String,
@@ -691,9 +787,15 @@ fn build_continuation_task(
   buf.write_string(
     "Based on the current project state above (git log, uncommitted changes, previous work), ",
   )
-  buf.write_string("identify and implement the single most impactful improvement. ")
-  buf.write_string("This could be: fixing bugs, adding tests, improving error handling, ")
-  buf.write_string("refactoring, documentation, or implementing a missing feature.\n\n")
+  buf.write_string(
+    "identify and implement the single most impactful improvement. ",
+  )
+  buf.write_string(
+    "This could be: fixing bugs, adding tests, improving error handling, ",
+  )
+  buf.write_string(
+    "refactoring, documentation, or implementing a missing feature.\n\n",
+  )
   buf.write_string(
     "Look at the actual codebase files, run tests, and make concrete changes. ",
   )
@@ -703,7 +805,8 @@ fn build_continuation_task(
 
 // ── REPL + Autonomous heartbeat ──────────────────────────────
 
-///| Autonomous loop: task → dev → review → continue
+///|
+/// Autonomous loop: task → dev → review → continue
 fn run_repl(
   config_path : String?,
   plan_path : String?,
@@ -737,7 +840,10 @@ fn run_repl(
     log("BOOT", "  \{agent.id} (\{agent.kind}, \{agent.role})")
   }
   log("BOOT", "Max review cycles: \{config.max_review_cycles}")
-  log("BOOT", "Review interval: every \{config.review_interval} dev iteration(s)")
+  log(
+    "BOOT",
+    "Review interval: every \{config.review_interval} dev iteration(s)",
+  )
   if rlm {
     log("BOOT", "RLM improvement loop mode: enabled")
   }
@@ -786,17 +892,13 @@ fn run_repl(
           }
           match saved.phase {
             "dev" | "review" => next_task = saved.task
-            _ => {
+            _ =>
               // idle → previous iteration done, build continuation
               next_task = match plan_path {
-                Some(path) =>
-                  build_plan_file_task(path, saved.review_summary)
+                Some(path) => build_plan_file_task(path, saved.review_summary)
                 None =>
-                  build_continuation_task(
-                    saved.task, saved.review_summary,
-                  )
+                  build_continuation_task(saved.task, saved.review_summary)
               }
-            }
           }
         }
       }
@@ -822,7 +924,9 @@ fn run_repl(
         if next_task.is_empty() {
           // No task given → start from TODO files
           next_task = build_initial_task_from_todos()
-          log("HEARTBEAT", "No task specified. Starting from project TODO files.")
+          log(
+            "HEARTBEAT", "No task specified. Starting from project TODO files.",
+          )
         }
       }
     }
@@ -840,22 +944,21 @@ fn run_repl(
     let interrupt = check_interrupt()
     if not(interrupt.is_empty()) {
       log("USER", "Applying user instructions: \{truncate(interrupt, 100)}")
-      next_task = next_task + "\n\n## Additional Instructions from User\n" +
+      next_task = next_task +
+        "\n\n## Additional Instructions from User\n" +
         interrupt
     }
     // ── dev phase ──
-    save_session(
-      {
-        iteration,
-        phase: "dev",
-        task: next_task,
-        dev_output: "",
-        review_summary: last_review_summary,
-        agent_sessions,
-        dev_since_review,
-        accumulated_dev_outputs,
-      },
-    )
+    save_session({
+      iteration,
+      phase: "dev",
+      task: next_task,
+      dev_output: "",
+      review_summary: last_review_summary,
+      agent_sessions,
+      dev_since_review,
+      accumulated_dev_outputs,
+    })
     // Per-iteration usage tracking
     let mut iter_input_tokens = 0
     let mut iter_output_tokens = 0
@@ -863,7 +966,11 @@ fn run_repl(
     let mut iter_cache_write = 0
     let mut iter_cost_usd = 0.0
     let on_usage : (Int, Int, Int, Int, Double) -> Unit = fn(
-      it, ot, cr, cw, cost
+      it,
+      ot,
+      cr,
+      cw,
+      cost,
     ) {
       iter_input_tokens += it
       iter_output_tokens += ot
@@ -877,7 +984,11 @@ fn run_repl(
       total_cost_usd += cost
     }
     let dev_result = run_dev(
-      dev_id, backends, next_task, agent_sessions, on_usage~,
+      dev_id,
+      backends,
+      next_task,
+      agent_sessions,
+      on_usage~,
     )
     dev_since_review += 1
     accumulated_dev_outputs.push(truncate(dev_result, 5000))
@@ -893,18 +1004,16 @@ fn run_repl(
     if dev_result.trim().is_empty() {
       log("HEARTBEAT", "Dev produced no output, skipping review")
       last_review_summary = "Dev agent produced no output - likely failed"
-      save_session(
-        {
-          iteration,
-          phase: "idle",
-          task: next_task,
-          dev_output: dev_result,
-          review_summary: last_review_summary,
-          agent_sessions,
-          dev_since_review,
-          accumulated_dev_outputs,
-        },
-      )
+      save_session({
+        iteration,
+        phase: "idle",
+        task: next_task,
+        dev_output: dev_result,
+        review_summary: last_review_summary,
+        agent_sessions,
+        dev_since_review,
+        accumulated_dev_outputs,
+      })
       continue
     }
     // ── review_interval check: only review after N dev iterations ──
@@ -923,18 +1032,16 @@ fn run_repl(
         "USAGE",
         "Total: \{total_input_tokens}in/\{total_output_tokens}out (cache: \{total_cache_read}r/\{total_cache_write}w), $\{total_cost_usd}",
       )
-      save_session(
-        {
-          iteration,
-          phase: "idle",
-          task: next_task,
-          dev_output: dev_result,
-          review_summary: last_review_summary,
-          agent_sessions,
-          dev_since_review,
-          accumulated_dev_outputs,
-        },
-      )
+      save_session({
+        iteration,
+        phase: "idle",
+        task: next_task,
+        dev_output: dev_result,
+        review_summary: last_review_summary,
+        agent_sessions,
+        dev_since_review,
+        accumulated_dev_outputs,
+      })
       // Build next task without review feedback
       let user_input = check_interrupt()
       if not(user_input.is_empty()) {
@@ -952,25 +1059,24 @@ fn run_repl(
         )
       }
       if not(post_dev_interrupt.is_empty()) {
-        next_task = next_task + "\n\n## Additional Instructions from User\n" +
+        next_task = next_task +
+          "\n\n## Additional Instructions from User\n" +
           post_dev_interrupt
       }
       continue
     }
     // ── review phase ──
     let combined_dev_output = join_dev_outputs(accumulated_dev_outputs)
-    save_session(
-      {
-        iteration,
-        phase: "review",
-        task: next_task,
-        dev_output: dev_result,
-        review_summary: last_review_summary,
-        agent_sessions,
-        dev_since_review,
-        accumulated_dev_outputs,
-      },
-    )
+    save_session({
+      iteration,
+      phase: "review",
+      task: next_task,
+      dev_output: dev_result,
+      review_summary: last_review_summary,
+      agent_sessions,
+      dev_since_review,
+      accumulated_dev_outputs,
+    })
     let review_result = match reviewer_id {
       Some(rid) =>
         run_review(
@@ -1006,18 +1112,16 @@ fn run_repl(
     match review_result {
       Approved(summary) => {
         last_review_summary = summary
-        save_session(
-          {
-            iteration,
-            phase: "idle",
-            task: next_task,
-            dev_output: dev_result,
-            review_summary: summary,
-            agent_sessions,
-            dev_since_review,
-            accumulated_dev_outputs,
-          },
-        )
+        save_session({
+          iteration,
+          phase: "idle",
+          task: next_task,
+          dev_output: dev_result,
+          review_summary: summary,
+          agent_sessions,
+          dev_since_review,
+          accumulated_dev_outputs,
+        })
         log("HEARTBEAT", "=== Iteration \{iteration} complete ===")
         log(
           "USAGE",
@@ -1036,29 +1140,32 @@ fn run_repl(
           // Auto-continue: build next task for dev
           log("HEARTBEAT", "Building next task from project state...")
           next_task = build_next_task(
-            plan_path, rlm, summary, dev_result, cycle_summary=cycle_summary,
+            plan_path,
+            rlm,
+            summary,
+            dev_result,
+            cycle_summary~,
           )
         }
         // Also apply any post-dev interrupt that wasn't consumed
         if not(post_dev_interrupt.is_empty()) {
-          next_task = next_task + "\n\n## Additional Instructions from User\n" +
+          next_task = next_task +
+            "\n\n## Additional Instructions from User\n" +
             post_dev_interrupt
         }
       }
       Rejected(reason) => {
         last_review_summary = reason
-        save_session(
-          {
-            iteration,
-            phase: "idle",
-            task: next_task,
-            dev_output: dev_result,
-            review_summary: reason,
-            agent_sessions,
-            dev_since_review,
-            accumulated_dev_outputs,
-          },
-        )
+        save_session({
+          iteration,
+          phase: "idle",
+          task: next_task,
+          dev_output: dev_result,
+          review_summary: reason,
+          agent_sessions,
+          dev_since_review,
+          accumulated_dev_outputs,
+        })
         log("HEARTBEAT", "=== Iteration \{iteration} complete (REJECTED) ===")
         log(
           "USAGE",
@@ -1077,8 +1184,7 @@ fn run_repl(
           // Wait for user input via interrupt file
           println("")
           log(
-            "HEARTBEAT",
-            "Review rejected. Type next task and press Enter (or Ctrl+C to stop).",
+            "HEARTBEAT", "Review rejected. Type next task and press Enter (or Ctrl+C to stop).",
           )
           let mut user_input = ""
           while user_input.is_empty() {
@@ -1095,13 +1201,15 @@ fn run_repl(
   }
 }
 
-///| Review outcome for the main loop
+///|
+/// Review outcome for the main loop
 enum ReviewOutcome {
   Approved(String) // review summary
   Rejected(String) // reason
 }
 
-///| Restore session IDs to backends
+///|
+/// Restore session IDs to backends
 fn restore_sessions(
   backends : Map[String, @agent.BoxedBackend],
   agent_sessions : Map[String, String],
@@ -1117,7 +1225,8 @@ fn restore_sessions(
   }
 }
 
-///| Find agent id by role
+///|
+/// Find agent id by role
 fn find_agent_id(
   agents : Array[@types.AgentConfig],
   role : @types.AgentRole,
@@ -1130,79 +1239,69 @@ fn find_agent_id(
   None
 }
 
-///| Run dev agent, return output and call on_usage for token tracking
+///|
+/// Run dev agent, return output and call on_usage for token tracking
 fn run_dev(
   dev_id : String?,
   backends : Map[String, @agent.BoxedBackend],
   task : String,
   agent_sessions : Map[String, String],
-  on_usage~ : (Int, Int, Int, Int, Double) -> Unit = fn(_, _, _, _, _) {  },
+  on_usage? : (Int, Int, Int, Int, Double) -> Unit = fn(_, _, _, _, _) {  },
 ) -> String {
   let id = dev_id.unwrap_or("dev")
   match backends.get(id) {
     Some(backend) => {
       match agent_sessions.get(id) {
-        Some(sid) => log("DEV", "Starting \{id} (resume: \{sid})...")
-        None => log("DEV", "Starting \{id} (new session)...")
+        Some(sid) => print_agent_output_line(id, "starting (resume: \{sid})")
+        None => print_agent_output_line(id, "starting (new session)")
       }
       println("")
       let result = backend.run(task, "", fn(event) {
         match event {
-          @types.AgentEvent::OutputLine(text) => {
-            if not(text.is_empty()) {
-              println("  [\{id}] \{text}")
-            }
-          }
-          @types.AgentEvent::Info(msg) => log("INFO", "\{id}: \{msg}")
-          @types.AgentEvent::ToolCall(name=tool_name, input=tool_input) => {
-            log("CALL", "\{id} \{format_tool_call(tool_name, tool_input)}")
-          }
-          @types.AgentEvent::ToolResult(name=tool_name, output=tool_output) => {
-            log(
-              "DONE",
-              "\{id} \{format_tool_result(tool_name, tool_output)}",
+          @types.AgentEvent::OutputLine(text) =>
+            print_agent_output_line(id, text)
+          @types.AgentEvent::Info(msg) => print_agent_output_line(id, msg)
+          @types.AgentEvent::ToolCall(name=tool_name, input=tool_input) =>
+            print_agent_output_line(id, format_tool_call(tool_name, tool_input))
+          @types.AgentEvent::ToolResult(name=tool_name, output=tool_output) =>
+            print_agent_output_line(
+              id,
+              format_tool_result(tool_name, tool_output),
             )
-          }
-          @types.AgentEvent::SubAgentStart(
-            agent_type=agent_type,
-            task=desc,
-          ) => {
-            log(
-              "AGENT",
-              "\{id} spawned \{agent_type}: \{truncate(desc, 80)}",
+          @types.AgentEvent::SubAgentStart(agent_type~, task=desc) =>
+            print_agent_output_line(
+              id,
+              "spawned \{agent_type}: \{truncate(desc, 80)}",
             )
-          }
-          @types.AgentEvent::SubAgentEnd(agent_type=agent_type) => {
-            log("AGENT", "\{id} \{agent_type} completed")
-          }
-          @types.AgentEvent::StatusChange(status) => {
-            log("DEV", "\{id} -> \{status}")
-          }
+          @types.AgentEvent::SubAgentEnd(agent_type~) =>
+            print_agent_output_line(id, "\{agent_type} completed")
+          @types.AgentEvent::StatusChange(status) =>
+            print_agent_output_line(id, "status: \{status}")
           @types.AgentEvent::SessionId(sid) => {
             agent_sessions[id] = sid
-            log("DEV", "\{id} session: \{sid}")
+            print_agent_output_line(id, "session: \{sid}")
           }
           @types.AgentEvent::Usage(
             input_tokens=it,
             output_tokens=ot,
             cache_read=cr,
             cache_write=cw,
-            cost_usd=cost,
+            cost_usd=cost
           ) => on_usage(it, ot, cr, cw, cost)
         }
       })
       println("")
       match result.status {
         Completed => {
-          log("DEV", "\{id} finished successfully")
+          print_agent_output_line(id, "[completed]")
           result.content
         }
         Failed(err) => {
-          log("DEV", "\{id} failed: \{truncate(err, 100)}")
+          print_agent_output_line(id, "failed: \{truncate(err, 100)}")
           result.content
         }
         _ => {
-          log("DEV", "\{id} ended with status: \{result.status}")
+          print_agent_output_line(id, "ended with status: \{result.status}")
           result.content
         }
       }
@@ -1214,7 +1313,8 @@ fn run_dev(
   }
 }
 
-///| Gather git context for review
+///|
+/// Gather git context for review
 fn gather_review_context() -> String {
   let buf = StringBuilder::new()
   let git_log = exec_sync("git log --oneline -10 2>/dev/null")
@@ -1238,7 +1338,8 @@ fn gather_review_context() -> String {
   buf.to_string()
 }
 
-///| Run review, return outcome
+///|
+/// Run review, return outcome
 fn run_review(
   dev_id : String?,
   reviewer_id : String,
@@ -1248,46 +1349,45 @@ fn run_review(
   max_cycles : Int,
   agent_sessions : Map[String, String],
   lang : String,
-  on_usage~ : (Int, Int, Int, Int, Double) -> Unit = fn(_, _, _, _, _) {  },
+  on_usage? : (Int, Int, Int, Int, Double) -> Unit = fn(_, _, _, _, _) {  },
 ) -> ReviewOutcome {
   match backends.get(reviewer_id) {
     Some(backend) => {
       let ra = @review.ReviewAgent::new(reviewer_id, lang)
-      log("REVIEW", "Gathering git context...")
+      print_agent_output_line(reviewer_id, "gathering git context...")
       let context = gather_review_context()
       let perspectives = ra.perspectives()
       for perspective in perspectives {
-        log("REVIEW", "Reviewing: \{perspective}...")
+        print_agent_output_line(reviewer_id, "reviewing: \{perspective}...")
       }
       let review_event_handler : (@types.AgentEvent) -> Unit = fn(event) {
         match event {
+          @types.AgentEvent::OutputLine(line) =>
+            print_agent_output_line(reviewer_id, line)
           @types.AgentEvent::Info(msg) =>
-            log("INFO", "\{reviewer_id}: \{msg}")
+            print_agent_output_line(reviewer_id, msg)
           @types.AgentEvent::ToolCall(name=tool_name, input=tool_input) =>
-            log(
-              "CALL",
-              "\{reviewer_id} \{format_tool_call(tool_name, tool_input)}",
+            print_agent_output_line(
+              reviewer_id,
+              format_tool_call(tool_name, tool_input),
             )
-          @types.AgentEvent::ToolResult(
-            name=tool_name,
-            output=tool_output,
-          ) =>
-            log(
-              "DONE",
-              "\{reviewer_id} \{format_tool_result(tool_name, tool_output)}",
+          @types.AgentEvent::ToolResult(name=tool_name, output=tool_output) =>
+            print_agent_output_line(
+              reviewer_id,
+              format_tool_result(tool_name, tool_output),
             )
           @types.AgentEvent::StatusChange(status) =>
-            log("REVIEW", "\{reviewer_id} -> \{status}")
+            print_agent_output_line(reviewer_id, "status: \{status}")
           @types.AgentEvent::SessionId(sid) => {
             agent_sessions[reviewer_id] = sid
-            log("REVIEW", "\{reviewer_id} session: \{sid}")
+            print_agent_output_line(reviewer_id, "session: \{sid}")
           }
           @types.AgentEvent::Usage(
             input_tokens=it,
             output_tokens=ot,
             cache_read=cr,
             cache_write=cw,
-            cost_usd=cost,
+            cost_usd=cost
           ) => on_usage(it, ot, cr, cw, cost)
           _ => ()
         }
@@ -1295,9 +1395,12 @@ fn run_review(
       let review_task = @types.Task::new("review-target", task)
       review_task.complete(dev_output)
       let review = ra.review(
-        review_task, backend, context=context, on_event=review_event_handler,
+        review_task,
+        backend,
+        context~,
+        on_event=review_event_handler,
       )
-      log("REVIEW", "\{reviewer_id} finished")
+      print_agent_output_line(reviewer_id, "[completed]")
       match review.verdict {
         Approved => {
           println("")
@@ -1317,24 +1420,23 @@ fn run_review(
           let mut latest_summary = review.summary
           while cycle < max_cycles {
             cycle += 1
-            log(
-              "HEARTBEAT",
-              "Auto-rework cycle \{cycle}/\{max_cycles}",
-            )
-            let feedback = current_items.iter().fold(
-              init="",
-              fn(acc, item) { acc + "- " + item + "\n" },
-            )
+            log("HEARTBEAT", "Auto-rework cycle \{cycle}/\{max_cycles}")
+            let feedback = current_items
+              .iter()
+              .fold(init="", fn(acc, item) { acc + "- " + item + "\n" })
             let rework_task = "\{task}\n\nFeedback from review:\n\{feedback}"
             current_output = run_dev(
-              dev_id, backends, rework_task, agent_sessions, on_usage~,
+              dev_id,
+              backends,
+              rework_task,
+              agent_sessions,
+              on_usage~,
             )
-            log("REVIEW", "Re-reviewing after rework (3 perspectives)...")
+            print_agent_output_line(
+              reviewer_id, "re-reviewing after rework (3 perspectives)...",
+            )
             let fresh_context = gather_review_context()
-            let rework_review_task = @types.Task::new(
-              "rework-\{cycle}",
-              task,
-            )
+            let rework_review_task = @types.Task::new("rework-\{cycle}", task)
             rework_review_task.complete(current_output)
             let rework_review = ra.review(
               rework_review_task,

@@ -62,6 +62,18 @@ test('normalizeItemComplete: command_execution falls back to exit code', () => {
   assert.equal(event.content, 'exit_code=7');
 });
 
+test('normalizeItemComplete: command_execution uses aggregated_output from Codex SDK', () => {
+  const event = normalizeItemComplete({
+    type: 'command_execution',
+    aggregated_output: 'PASS sdk/codex-adapter.test.mjs\n',
+    exit_code: 0,
+  });
+
+  assert.equal(event.type, 'tool_result');
+  assert.equal(event.tool_name, 'Bash');
+  assert.equal(event.content, 'PASS sdk/codex-adapter.test.mjs\n');
+});
+
 test('normalizeItemComplete: Task result keeps tool_name Task', () => {
   const event = normalizeItemComplete({
     type: 'mcp_tool_call',
