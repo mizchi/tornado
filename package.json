@@ -1,6 +1,6 @@
 {
   "name": "@ymdvsymd/tornado",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "description": "Multi-agent development orchestrator with TUI",
   "bin": {
     "tornado": "bin/tornado.js"
