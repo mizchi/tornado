@@ -7,3 +7,7 @@ node_modules/
 scheduled_tasks.lock
 settings.local.json
 .runs/
+
+# Dolt database files (added by bd init)
+.dolt/
+*.db
