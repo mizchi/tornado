@@ -23,8 +23,6 @@ arguments: plan_file:計画ファイル(Markdown)のパス
 
 ## オーケストレーション概要
 
-計画ファイル (Markdown) を tornado Ralph モードの入力に変換し、バックグラウンドで起動・監視する **5フェーズパイプライン**。
-
 1. **入力検証** — 引数解析、ファイル確認、リポジトリルート取得
 2. **計画→マイルストーン変換** — 英訳、brief 抽出、`##` 見出しから milestone 配列を直接生成
 3. **出力ファイル生成** — tornado.json 生成
@@ -97,36 +95,11 @@ Markdown を **`references/parse-rules.md`** の規則でパースし、`##` 見
 
 ### Phase 3: 出力ファイル生成
 
-出力ディレクトリは Phase 2 Step 1 で作成済み。最終成果物は `plan-en.md`, `milestones.json`, `tornado.json` の3つ。
+最終成果物は `plan-en.md`, `milestones.json`, `tornado.json` の3つ。
 
 #### 3-1. milestones.json
 
-**`references/milestones-schema.md`** の JSON スキーマに従い、`milestones.json` を**直接生成**する。中間 skeleton ファイルや追加の注入ステップは使わない。
-
-生成内容:
-
-```json
-{
-  "brief": "Full content of informational sections (Context, Target Files, Design Decisions, etc.) + intro text",
-  "milestones": [
-    {
-      "id": "m1",
-      "goal": "Heading text\n\nFull body content including file paths, line numbers, code examples, ### subsections...",
-      "status": "pending",
-      "summary": "",
-      "tasks": []
-    }
-  ]
-}
-```
-
-要件:
-
-- `brief` には Phase 2 で収集した情報セクションの全文を入れる
-- `milestones` にはマイルストーン対象の `##` 見出しごとの milestone を順番どおり入れる
-- 各 milestone の `goal` には見出し＋配下の本文全体を含める
-- 各 milestone は `status: "pending"`、`summary: ""`、`tasks: []` で初期化する
-- runtime Planner agent が後で tasks を生成する前提なので、この skill では task を埋めない
+**`references/milestones-schema.md`** の JSON スキーマに従い、`milestones.json` を**直接生成**する。Phase 2 で構築した brief・milestones をそのまま使用する。
 
 スキーマの詳細は `references/milestones-schema.md` を Read して参照すること。
 
@@ -139,8 +112,6 @@ Markdown を **`references/parse-rules.md`** の規則でパースし、`##` 見
 - Verifier kind には `VERIFIER_KIND` を使う
 
 テンプレートとエージェント設定の詳細は `references/tornado-config.md` を Read して参照すること。
-
-背景情報の受け渡しは `milestones.json` の `brief` に集約する。追加の plan 注入ステップや補助スクリプトは使わない。
 
 ---
 

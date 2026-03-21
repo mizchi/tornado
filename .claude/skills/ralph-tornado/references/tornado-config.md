@@ -21,16 +21,6 @@
 - `milestones_path` は**絶対パス**で指定すること（tornado は process.cwd() で動作するため）
 - `review_dir` は相対パスで指定
 
-## エージェント構成
-
-| ID       | kind             | role     | 備考 |
-|----------|------------------|----------|------|
-| planner  | `<PLANNER_KIND>` | planner  | デフォルト: `claude-code` |
-| builder  | `<DEV_KIND>`     | dev      | デフォルト: `codex` |
-| verifier | `<VERIFIER_KIND>`| verifier | デフォルト: `claude-code` |
-
-> `brief` は `tornado.json` ではなく `milestones.json` で管理する。
-
 ## 有効な agent kind 値
 
 `claude-code`, `claude`, `claudecode`, `codex`, `api`, `mock`
