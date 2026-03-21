@@ -155,7 +155,7 @@ Markdown を **`references/parse-rules.md`** の規則でパースし、`##` 見
    Bash ツールで以下のコマンドを `run_in_background: true` で実行する。`--log` は出力ディレクトリに ANSI エスケープコードを含まないプレーンテキストのログファイルを書き出し、実行後のレビューに使う:
 
    ```bash
-   npx -y @ymdvsymd/tornado@latest --ralph --config=<tornado.json の絶対パス> --log=<出力ディレクトリの絶対パス>/tornado.log
+   npx -y @ymdvsymd/tornado@latest --ralph --config=<tornado.json の絶対パス> --log=<出力ディレクトリの絶対パス>/tornado.log --lang=en
    ```
 
    起動後、ユーザーにタスク ID を共有する。
