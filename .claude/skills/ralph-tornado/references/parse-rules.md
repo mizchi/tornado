@@ -27,4 +27,4 @@
 
 - 最初の `# 見出し` のテキストを英語に翻訳してタイトルとする
 - 小文字化、スペース/アンダースコアをハイフンに変換、英数字とハイフン以外を除去、50文字以内に切り詰める
-- 出力ディレクトリ: `{repo_root}/.runs/{yyyy-mm-dd}_{kebab-case-name}/`
+- 出力ディレクトリ: `{repo_root}/.runs/{yyyy-mm-dd_HHmm}_{kebab-case-name}/`
