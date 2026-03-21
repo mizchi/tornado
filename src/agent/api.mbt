@@ -67,10 +67,10 @@ impl AgentBackend for ApiBackend with run(self, task, system_prompt, on_output) 
   let content = buf.to_string()
   if has_error {
     let err = error_buf.to_string()
-    { content, status: @types.AgentStatus::Failed(err), error: Some(err) }
+    { content, status: @types.AgentStatus::Failed(err), error: Some(err), session_id: "" }
   } else {
     on_output(@types.AgentEvent::StatusChange(@types.AgentStatus::Completed))
-    { content, status: Completed, error: None }
+    { content, status: Completed, error: None, session_id: "" }
   }
 }
 

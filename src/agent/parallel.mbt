@@ -4,6 +4,7 @@ pub fn run_parallel(
   tasks : Array[(String, String)],
   on_output : (@types.AgentEvent) -> Unit,
   model? : String = "",
+  session_ids~ : Array[String] = [],
 ) -> Array[@types.AgentResult] {
   match backend.name() {
     "claude-code" => run_parallel_sdk_backend(
@@ -11,12 +12,14 @@ pub fn run_parallel(
       tasks,
       on_output,
       model,
+      session_ids,
     )
     "codex" => run_parallel_sdk_backend(
       "codex",
       tasks,
       on_output,
       model,
+      session_ids,
     )
     _ => run_parallel_sequential(backend, tasks, on_output)
   }
@@ -40,11 +43,12 @@ fn run_parallel_sdk_backend(
   tasks : Array[(String, String)],
   on_output : (@types.AgentEvent) -> Unit,
   model : String,
+  session_ids : Array[String],
 ) -> Array[@types.AgentResult] {
   let opts : Map[String, Json] = {}
   opts["runner"] = runner.to_json()
   let task_opts : Array[Json] = []
-  for task in tasks {
+  for i, task in tasks {
     let (prompt, system_prompt) = task
     let task_json : Map[String, Json] = {}
     task_json["prompt"] = prompt.to_json()
@@ -53,6 +57,16 @@ fn run_parallel_sdk_backend(
     }
     if not(model.is_empty()) {
       task_json["model"] = model.to_json()
+    }
+    // Attach session ID for resume if available from pool
+    let sid = if i < session_ids.length() { session_ids[i] } else { "" }
+    if not(sid.is_empty()) {
+      // Use the appropriate key for each runner
+      match runner {
+        "codex" => task_json["threadId"] = sid.to_json()
+        "claude" => task_json["sessionId"] = sid.to_json()
+        _ => ()
+      }
     }
     task_opts.push(Json::object(task_json))
   }
@@ -81,6 +95,7 @@ fn run_parallel_sdk_backend(
                   "ERROR: invalid parallel SDK result entry",
                 ),
                 error: Some("ERROR: invalid parallel SDK result entry"),
+                session_id: "",
               },
             )
         }
@@ -93,6 +108,7 @@ fn run_parallel_sdk_backend(
               "ERROR: missing parallel SDK result",
             ),
             error: Some("ERROR: missing parallel SDK result"),
+            session_id: "",
           },
         )
       }
@@ -116,6 +132,7 @@ fn replicate_failed_result(
         content: "",
         status: @types.AgentStatus::Failed(err),
         error: Some(err),
+        session_id: "",
       },
     )
   }
@@ -123,7 +140,7 @@ fn replicate_failed_result(
 }
 
 fn failed_result(err : String) -> @types.AgentResult {
-  { content: "", status: @types.AgentStatus::Failed(err), error: Some(err) }
+  { content: "", status: @types.AgentStatus::Failed(err), error: Some(err), session_id: "" }
 }
 
 pub fn parse_jsonl_result(
@@ -139,6 +156,7 @@ pub fn parse_jsonl_result(
   let line_buf = OutputLineBuffer::new()
   let error_buf = StringBuilder::new()
   let mut has_error = false
+  let mut captured_session_id = ""
   for line_view in jsonl.split("\n") {
     let line = line_view.to_string().trim().to_string()
     if line.is_empty() {
@@ -150,7 +168,10 @@ pub fn parse_jsonl_result(
       line_buf,
       error_buf,
       on_output,
-      fn(sid) { on_output(@types.AgentEvent::SessionId(sid)) },
+      fn(sid) {
+        captured_session_id = sid
+        on_output(@types.AgentEvent::SessionId(sid))
+      },
     ) {
       has_error = true
     }
@@ -160,10 +181,15 @@ pub fn parse_jsonl_result(
   if has_error {
     let err = error_buf.to_string()
     on_output(@types.AgentEvent::StatusChange(@types.AgentStatus::Failed(err)))
-    { content, status: @types.AgentStatus::Failed(err), error: Some(err) }
+    {
+      content,
+      status: @types.AgentStatus::Failed(err),
+      error: Some(err),
+      session_id: captured_session_id,
+    }
   } else {
     on_output(@types.AgentEvent::StatusChange(@types.AgentStatus::Completed))
-    { content, status: Completed, error: None }
+    { content, status: Completed, error: None, session_id: captured_session_id }
   }
 }
 

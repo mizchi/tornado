@@ -47,7 +47,7 @@ impl AgentBackend for MockBackend with run(self, task, system_prompt, on_output)
   let response = self.find_response(task)
   on_output(@types.AgentEvent::OutputLine(response))
   on_output(@types.AgentEvent::StatusChange(@types.AgentStatus::Completed))
-  { content: response, status: Completed, error: None }
+  { content: response, status: Completed, error: None, session_id: "" }
 }
 
 ///| AgentBackend implementation for MockBackend
@@ -106,6 +106,7 @@ impl AgentBackend for FailingMockBackend with run(
     content: "",
     status: @types.AgentStatus::Failed(self.error_msg),
     error: Some(self.error_msg),
+    session_id: "",
   }
 }
 

@@ -80,7 +80,7 @@ fn SubprocessBackend::run_claude_code(
     on_output(
       @types.AgentEvent::StatusChange(@types.AgentStatus::Failed(err)),
     )
-    return { content: "", status: @types.AgentStatus::Failed(err), error: Some(err) }
+    return { content: "", status: @types.AgentStatus::Failed(err), error: Some(err), session_id: self.session_id }
   }
   self.parse_sdk_output(raw_output, on_output)
 }
@@ -242,7 +242,7 @@ fn SubprocessBackend::run_codex(
     on_output(
       @types.AgentEvent::StatusChange(@types.AgentStatus::Failed(err)),
     )
-    return { content: "", status: @types.AgentStatus::Failed(err), error: Some(err) }
+    return { content: "", status: @types.AgentStatus::Failed(err), error: Some(err), session_id: self.session_id }
   }
   self.parse_sdk_output(raw_output, on_output)
 }
@@ -273,10 +273,10 @@ fn SubprocessBackend::parse_sdk_output(
     on_output(
       @types.AgentEvent::StatusChange(@types.AgentStatus::Failed(err)),
     )
-    { content, status: @types.AgentStatus::Failed(err), error: Some(err) }
+    { content, status: @types.AgentStatus::Failed(err), error: Some(err), session_id: self.session_id }
   } else {
     on_output(@types.AgentEvent::StatusChange(@types.AgentStatus::Completed))
-    { content, status: Completed, error: None }
+    { content, status: Completed, error: None, session_id: self.session_id }
   }
 }
 

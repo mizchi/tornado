@@ -149,6 +149,7 @@ pub(all) struct AgentResult {
   content : String
   status : AgentStatus
   error : String?
+  session_id : String
 }
 
 ///| Create a new session

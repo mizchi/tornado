@@ -8,6 +8,7 @@ pub struct RalphLoop {
   callbacks : @types.OrchestratorCallbacks
   mut current_phase : @types.RalphPhase
   max_rework_attempts : Int
+  mut session_pool : Array[String]
 }
 
 ///| Create a new ralph loop
@@ -37,6 +38,7 @@ pub fn RalphLoop::new(
     callbacks,
     current_phase: @types.RalphPhase::LoadingMilestones,
     max_rework_attempts: config.max_rework_attempts,
+    session_pool: [],
   }
 }
 
@@ -172,7 +174,10 @@ fn RalphLoop::run_wave(
         backend,
         builder_tasks,
         fn(e) { handle_event(self, bid, e) },
+        session_ids=self.session_pool,
       )
+      // Update session pool with returned session IDs for reuse
+      self.session_pool = results.map(fn(r) { r.session_id })
       for i in 0..<tasks.length() {
         let task = tasks[i]
         let result = results[i]
@@ -450,7 +455,10 @@ fn RalphLoop::rework_task_list(
         backend,
         builder_tasks,
         fn(e) { handle_event(self, bid, e) },
+        session_ids=self.session_pool,
       )
+      // Update session pool with returned session IDs for reuse
+      self.session_pool = results.map(fn(r) { r.session_id })
       for i in 0..<rework_tasks.length() {
         let task = rework_tasks[i]
         let result = results[i]
