@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { runAdapter } from "./agent-runner.mjs";
-import { stampEvent, writeJsonl } from "./runner-io.mjs";
+import { nowTimestamp, stampEvent, writeJsonl } from "./runner-io.mjs";
 
 test("runAdapter emits init events and mapped stream events in order", async () => {
   const events = [];
@@ -80,6 +80,21 @@ test("runAdapter supports log-only emissions", async () => {
 
   assert.deepEqual(events, []);
   assert.deepEqual(logs, ["only-log"]);
+});
+
+// tornado-80h: nowTimestamp is exported and returns HH:MM:SS
+test("nowTimestamp is exported and returns HH:MM:SS format (tornado-80h)", () => {
+  assert.equal(
+    typeof nowTimestamp,
+    "function",
+    "nowTimestamp must be exported",
+  );
+  const ts = nowTimestamp();
+  assert.match(
+    ts,
+    /^\d{2}:\d{2}:\d{2}$/,
+    "nowTimestamp must return HH:MM:SS format",
+  );
 });
 
 // tornado-5r4: stampEvent adds _tornado_ts at call time

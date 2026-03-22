@@ -1,10 +1,8 @@
-function nowTimestamp(): string {
-  const d = new Date();
-  const h = String(d.getHours()).padStart(2, "0");
-  const m = String(d.getMinutes()).padStart(2, "0");
-  const s = String(d.getSeconds()).padStart(2, "0");
-  return `${h}:${m}:${s}`;
-}
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+export const {
+  nowTimestamp,
+}: { nowTimestamp: () => string } = require("./now-timestamp.cjs");
 
 export function stampEvent(event: unknown): unknown {
   if (event != null && typeof event === "object") {

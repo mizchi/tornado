@@ -190,9 +190,7 @@ pub fn now_timestamp() -> String {
 ///|
 extern "js" fn js_now_timestamp() -> String =
   #|() => {
-  #|  const d = new Date();
-  #|  const h = String(d.getHours()).padStart(2, '0');
-  #|  const m = String(d.getMinutes()).padStart(2, '0');
-  #|  const s = String(d.getSeconds()).padStart(2, '0');
-  #|  return h + ':' + m + ':' + s;
+  #|  const path = require('path');
+  #|  const { nowTimestamp } = require(path.join(__dirname, '..', 'sdk', 'now-timestamp.cjs'));
+  #|  return nowTimestamp();
   #|}
