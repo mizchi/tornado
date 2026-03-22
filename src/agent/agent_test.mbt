@@ -692,6 +692,38 @@ test "tornado-5r4: _tornado_ts propagated into OutputLine events" {
   assert_true(lines[0].has_prefix("[TS:09:15:30] "))
 }
 
+// ── check_ffi_error tests ──
+
+///|
+test "check_ffi_error returns Ok for normal string" {
+  let result = @agent.check_ffi_error("hello world")
+  inspect(result, content="Ok(\"hello world\")")
+}
+
+///|
+test "check_ffi_error returns Err for ERROR: prefixed string" {
+  let result = @agent.check_ffi_error("ERROR: file not found")
+  inspect(result, content="Err(\"ERROR: file not found\")")
+}
+
+///|
+test "check_ffi_error returns Ok for empty string" {
+  let result = @agent.check_ffi_error("")
+  inspect(result, content="Ok(\"\")")
+}
+
+///|
+test "check_ffi_error returns Err for ERROR: with no space" {
+  let result = @agent.check_ffi_error("ERROR:no space")
+  inspect(result, content="Err(\"ERROR:no space\")")
+}
+
+///|
+test "check_ffi_error returns Ok for string containing ERROR: in middle" {
+  let result = @agent.check_ffi_error("some ERROR: in the middle")
+  inspect(result, content="Ok(\"some ERROR: in the middle\")")
+}
+
 ///|
 test "tornado-5r4: backward compat without _tornado_ts" {
   let buf = StringBuilder::new()

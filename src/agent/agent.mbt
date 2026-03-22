@@ -1,4 +1,17 @@
 ///|
+/// Convert an FFI result string into a Result type.
+/// FFI functions (JS interop) return error strings with "ERROR:" prefix.
+/// This function centralizes that check so callers use Result instead of
+/// raw string prefix matching.
+pub fn check_ffi_error(raw : String) -> Result[String, String] {
+  if raw.has_prefix("ERROR:") {
+    Err(raw)
+  } else {
+    Ok(raw)
+  }
+}
+
+///|
 /// AgentBackend trait for executing tasks
 pub(open) trait AgentBackend {
   run(

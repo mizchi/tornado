@@ -122,23 +122,24 @@ fn run_ralph(
   log("INFO", "Starting ralph loop mode...")
   // Load or create config
   let config = match config_path {
-    Some(path) => {
-      let content = read_file_sync(path)
-      if content.has_prefix("ERROR:") {
-        log("ERROR", "Failed to read config: \{content}")
-        return
-      }
-      try {
-        let parsed = @config.ProjectConfig::from_json_string(content)
-        // Apply ralph_enabled override
-        { ..parsed, ralph_enabled: true }
-      } catch {
-        err => {
-          log("ERROR", "Failed to parse config: \{err}")
+    Some(path) =>
+      match read_file_result(path) {
+        Err(err) => {
+          log("ERROR", "Failed to read config: \{err}")
           return
         }
+        Ok(content) =>
+          try {
+            let parsed = @config.ProjectConfig::from_json_string(content)
+            // Apply ralph_enabled override
+            { ..parsed, ralph_enabled: true }
+          } catch {
+            err => {
+              log("ERROR", "Failed to parse config: \{err}")
+              return
+            }
+          }
       }
-    }
     None => @config.ProjectConfig::preset_ralph()
   }
   // Apply kind overrides
@@ -160,23 +161,22 @@ fn run_ralph(
     Some(p) => p
     None => ".tornado/milestones.json"
   }
-  let mgr = if is_existing_file(milestones_path) {
-    let content = read_file_sync(milestones_path)
-    if content.has_prefix("ERROR:") {
-      log("WARN", "Could not read milestones file, starting fresh")
-      @ralph.MilestoneManager::new()
-    } else {
+  let mgr = match read_file_result(milestones_path) {
+    Ok(content) =>
       @ralph.MilestoneManager::load_from_json(content) catch {
         err => {
           log("WARN", "Could not parse milestones file: \{err}, starting fresh")
           @ralph.MilestoneManager::new()
         }
       }
+    Err(_) => {
+      log("INFO", "No milestones file found at \{milestones_path}")
+      log(
+        "INFO",
+        "Create \{milestones_path} with milestone definitions to start",
+      )
+      @ralph.MilestoneManager::new()
     }
-  } else {
-    log("INFO", "No milestones file found at \{milestones_path}")
-    log("INFO", "Create \{milestones_path} with milestone definitions to start")
-    @ralph.MilestoneManager::new()
   }
   if mgr.milestones.is_empty() {
     log("WARN", "No milestones defined. Create \{milestones_path} first.")
@@ -212,28 +212,34 @@ fn run_ralph(
 }
 
 ///|
+/// Read a file and return Result, converting FFI error strings at the boundary.
+fn read_file_result(path : String) -> Result[String, String] {
+  @agent.check_ffi_error(read_file_sync(path))
+}
+
+///|
 fn is_existing_file(path : String) -> Bool {
-  let content = read_file_sync(path)
-  not(content.has_prefix("ERROR:"))
+  read_file_result(path) is Ok(_)
 }
 
 ///|
 fn load_plan_task(plan_path : String?) -> String? {
   match plan_path {
-    Some(path) => {
-      // Verify the file exists and is readable
-      let content = read_file_sync(path)
-      if content.has_prefix("ERROR:") {
-        log("WARN", "Failed to read plan file \{path}: \{content}")
-        None
-      } else if content.trim().to_string().is_empty() {
-        log("WARN", "Plan file is empty: \{path}")
-        None
-      } else {
-        log("BOOT", "Using plan file: \{path}")
-        Some(build_plan_file_task(path, ""))
+    Some(path) =>
+      match read_file_result(path) {
+        Err(err) => {
+          log("WARN", "Failed to read plan file \{path}: \{err}")
+          None
+        }
+        Ok(content) =>
+          if content.trim().to_string().is_empty() {
+            log("WARN", "Plan file is empty: \{path}")
+            None
+          } else {
+            log("BOOT", "Using plan file: \{path}")
+            Some(build_plan_file_task(path, ""))
+          }
       }
-    }
     None => None
   }
 }
@@ -242,20 +248,21 @@ fn load_plan_task(plan_path : String?) -> String? {
 /// Load config from file, or use preset
 fn load_config(config_path : String?) -> @config.ProjectConfig {
   match config_path {
-    Some(path) => {
-      let content = read_file_sync(path)
-      if content.has_prefix("ERROR:") {
-        log("WARN", "Failed to read \{path}: \{content}")
-        log("WARN", "Falling back to preset config")
-        return @config.ProjectConfig::preset_default()
-      }
-      @config.ProjectConfig::from_json_string(content) catch {
-        err => {
-          log("WARN", "Invalid config: \{err}, using preset")
+    Some(path) =>
+      match read_file_result(path) {
+        Err(err) => {
+          log("WARN", "Failed to read \{path}: \{err}")
+          log("WARN", "Falling back to preset config")
           @config.ProjectConfig::preset_default()
         }
+        Ok(content) =>
+          @config.ProjectConfig::from_json_string(content) catch {
+            err => {
+              log("WARN", "Invalid config: \{err}, using preset")
+              @config.ProjectConfig::preset_default()
+            }
+          }
       }
-    }
     None => @config.ProjectConfig::preset_default()
   }
 }
@@ -325,10 +332,12 @@ fn format_tool_result(name : String, output : String) -> String {
 
 ///|
 fn run_validate(config_path : String) -> Unit {
-  let content = read_file_sync(config_path)
-  if content.has_prefix("ERROR:") {
-    println("Failed to read config: \{content}")
-    return
+  let content = match read_file_result(config_path) {
+    Err(err) => {
+      println("Failed to read config: \{err}")
+      return
+    }
+    Ok(c) => c
   }
   let config = @config.ProjectConfig::from_json_string(content) catch {
     err => {
@@ -394,9 +403,9 @@ fn save_session(state : SessionState) -> Unit {
 ///|
 /// Load session state from disk
 fn load_session() -> SessionState? {
-  let content = read_file_sync(session_file)
-  if content.has_prefix("ERROR:") {
-    return None
+  let content = match read_file_result(session_file) {
+    Err(_) => return None
+    Ok(c) => c
   }
   let json = @json.parse(content) catch { _ => return None }
   match json {
@@ -485,12 +494,15 @@ fn build_initial_task_from_todos() -> String {
   )
   let mut found = false
   for file in todo_files {
-    let content = read_file_sync(file)
-    if not(content.has_prefix("ERROR:")) && not(content.is_empty()) {
-      found = true
-      buf.write_string("## \{file}\n```\n")
-      buf.write_string(truncate(content, 3000))
-      buf.write_string("\n```\n\n")
+    match read_file_result(file) {
+      Ok(content) =>
+        if not(content.is_empty()) {
+          found = true
+          buf.write_string("## \{file}\n```\n")
+          buf.write_string(truncate(content, 3000))
+          buf.write_string("\n```\n\n")
+        }
+      Err(_) => ()
     }
   }
   if not(found) {

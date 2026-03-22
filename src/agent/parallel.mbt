@@ -51,14 +51,15 @@ fn run_parallel_sdk_backend(
   }
   opts["tasks"] = Json::array(task_opts)
   let raw_output = run_parallel_sdk(Json::object(opts).stringify())
-  if raw_output.has_prefix("ERROR:") {
-    return replicate_failed_result(tasks.length(), raw_output)
+  let sdk_output = match check_ffi_error(raw_output) {
+    Err(err) => return replicate_failed_result(tasks.length(), err)
+    Ok(output) => output
   }
-  let parsed = @json.parse(raw_output) catch {
+  let parsed = @json.parse(sdk_output) catch {
     _ =>
       return replicate_failed_result(
         tasks.length(),
-        "ERROR: failed to parse parallel SDK output",
+        "failed to parse parallel SDK output",
       )
   }
   match parsed {
@@ -71,9 +72,9 @@ fn run_parallel_sdk_backend(
             results.push({
               content: "",
               status: @types.AgentStatus::Failed(
-                "ERROR: invalid parallel SDK result entry",
+                "invalid parallel SDK result entry",
               ),
-              error: Some("ERROR: invalid parallel SDK result entry"),
+              error: Some("invalid parallel SDK result entry"),
               session_id: "",
             })
         }
@@ -81,10 +82,8 @@ fn run_parallel_sdk_backend(
       while results.length() < tasks.length() {
         results.push({
           content: "",
-          status: @types.AgentStatus::Failed(
-            "ERROR: missing parallel SDK result",
-          ),
-          error: Some("ERROR: missing parallel SDK result"),
+          status: @types.AgentStatus::Failed("missing parallel SDK result"),
+          error: Some("missing parallel SDK result"),
           session_id: "",
         })
       }
@@ -93,7 +92,7 @@ fn run_parallel_sdk_backend(
     _ =>
       replicate_failed_result(
         tasks.length(),
-        "ERROR: invalid parallel SDK output shape",
+        "invalid parallel SDK output shape",
       )
   }
 }
@@ -130,10 +129,14 @@ pub fn parse_jsonl_result(
   jsonl : String,
   on_output : (@types.AgentEvent) -> Unit,
 ) -> @types.AgentResult {
-  if jsonl.has_prefix("ERROR:") {
-    let err = jsonl
-    on_output(@types.AgentEvent::StatusChange(@types.AgentStatus::Failed(err)))
-    return failed_result(err)
+  match check_ffi_error(jsonl) {
+    Err(err) => {
+      on_output(
+        @types.AgentEvent::StatusChange(@types.AgentStatus::Failed(err)),
+      )
+      return failed_result(err)
+    }
+    Ok(_) => ()
   }
   let buf = StringBuilder::new()
   let line_buf = OutputLineBuffer::new()

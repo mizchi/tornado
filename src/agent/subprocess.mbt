@@ -79,17 +79,20 @@ fn SubprocessBackend::run_claude_code(
   )
   // Run SDK via runner script
   let raw_output = run_claude_sdk(opts_json)
-  if raw_output.has_prefix("ERROR:") {
-    let err = raw_output
-    on_output(@types.AgentEvent::StatusChange(@types.AgentStatus::Failed(err)))
-    return {
-      content: "",
-      status: @types.AgentStatus::Failed(err),
-      error: Some(err),
-      session_id: self.session_id,
+  match check_ffi_error(raw_output) {
+    Err(err) => {
+      on_output(
+        @types.AgentEvent::StatusChange(@types.AgentStatus::Failed(err)),
+      )
+      return {
+        content: "",
+        status: @types.AgentStatus::Failed(err),
+        error: Some(err),
+        session_id: self.session_id,
+      }
     }
+    Ok(output) => self.parse_sdk_output(output, on_output)
   }
-  self.parse_sdk_output(raw_output, on_output)
 }
 
 ///| Parse a single SDK JSONL event line.
@@ -239,17 +242,20 @@ fn SubprocessBackend::run_codex(
     ),
   )
   let raw_output = run_codex_sdk(opts_json)
-  if raw_output.has_prefix("ERROR:") {
-    let err = raw_output
-    on_output(@types.AgentEvent::StatusChange(@types.AgentStatus::Failed(err)))
-    return {
-      content: "",
-      status: @types.AgentStatus::Failed(err),
-      error: Some(err),
-      session_id: self.session_id,
+  match check_ffi_error(raw_output) {
+    Err(err) => {
+      on_output(
+        @types.AgentEvent::StatusChange(@types.AgentStatus::Failed(err)),
+      )
+      return {
+        content: "",
+        status: @types.AgentStatus::Failed(err),
+        error: Some(err),
+        session_id: self.session_id,
+      }
     }
+    Ok(output) => self.parse_sdk_output(output, on_output)
   }
-  self.parse_sdk_output(raw_output, on_output)
 }
 
 ///|
