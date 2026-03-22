@@ -211,6 +211,11 @@ arguments: priority:優先度閾値(P0-P4、デフォルトP3)
 
 7. 全バッチ完了後:
    - 結果を `ALL_RESULTS` に追加
+   - **このイテレーションの成功チケットを即座にクローズ**:
+     ```bash
+     bd close <id1> <id2> ... --reason="Fixed in commit <hash>."
+     ```
+     依存先のチケットがunblockされ、次の再スキャンで拾えるようになる。
    - 外部ループの次のイテレーションへ（Phase 1 に戻り `bd ready` を再スキャン）
    - サーキットブレーカー（`ITERATION >= 5`）到達時は Phase 5 へ
 
@@ -250,9 +255,9 @@ arguments: priority:優先度閾値(P0-P4、デフォルトP3)
 
 ### Phase 5: クローズ・最終レポート
 
-1. **成功チケットのクローズ**:
+1. **未クローズの成功チケットをクローズ**:
 
-   各成功チケットに対して:
+   Phase 3 で既にクローズ済みのチケットはスキップし、残りの成功チケットをクローズする:
 
    ```bash
    bd close <id> --reason="Fixed in commit <hash>. Regression test added."
