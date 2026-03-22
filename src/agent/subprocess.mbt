@@ -42,7 +42,7 @@ impl AgentBackend for SubprocessBackend with run(
   match self.kind {
     ClaudeCode => self.run_claude_code(task, system_prompt, on_output)
     Codex => self.run_codex(task, system_prompt, on_output)
-    _ => self.run_claude_code(task, system_prompt, on_output)
+    Mock => self.run_claude_code(task, system_prompt, on_output)
   }
 }
 
@@ -295,7 +295,7 @@ impl AgentBackend for SubprocessBackend with name(self) {
   match self.kind {
     ClaudeCode => "claude-code"
     Codex => "codex"
-    _ => "subprocess"
+    Mock => "subprocess"
   }
 }
 
