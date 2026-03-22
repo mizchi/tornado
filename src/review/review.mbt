@@ -123,7 +123,7 @@ pub fn ReviewAgent::parse_verdict(
   if output.contains("<approved>") {
     return @types.ReviewVerdict::Approved
   }
-  match extract_tag_content(output, "needs_changes") {
+  match @util.extract_tag_content(output, "needs_changes") {
     Some(content) => {
       let items : Array[String] = []
       for part in content.split(",") {
@@ -140,7 +140,7 @@ pub fn ReviewAgent::parse_verdict(
     }
     None => ()
   }
-  match extract_tag_content(output, "rejected") {
+  match @util.extract_tag_content(output, "rejected") {
     Some(reason) =>
       return @types.ReviewVerdict::Rejected(reason.trim().to_string())
     None => ()
@@ -224,38 +224,5 @@ fn ReviewAgent::build_system_prompt(
     "あなたは \{perspective} に焦点を当てたコードレビュアーです。簡潔かつ具体的に指摘してください。問題の修正は行わず、TODO リストとして書き出してください。"
   } else {
     "You are a code reviewer focusing on \{perspective}. Be concise and actionable. Do NOT fix issues — list them as TODOs."
-  }
-}
-
-///| Extract content between XML-style tags.
-
-///| Searches for the close tag starting from after the open tag,
-
-///|
-/// preventing cross-tag mismatches when close tag appears before open tag.
-fn extract_tag_content(text : String, tag_name : String) -> String? {
-  let open_tag = "<\{tag_name}>"
-  let close_tag = "</\{tag_name}>"
-  let open_idx = text.find(open_tag)
-  match open_idx {
-    Some(start) => {
-      let content_start = start + open_tag.length()
-      // Search for close tag only in the text after the open tag
-      let remaining = text.view(start_offset=content_start).to_string()
-      let close_idx = remaining.find(close_tag)
-      match close_idx {
-        Some(rel_end) =>
-          Some(
-            text
-            .view(
-              start_offset=content_start,
-              end_offset=content_start + rel_end,
-            )
-            .to_string(),
-          )
-        None => None
-      }
-    }
-    None => None
   }
 }

@@ -129,15 +129,21 @@ pub fn VerifierAgent::parse_verdict(
   output : String,
 ) -> @types.VerifierVerdict {
   // Check for <milestone_failed>
-  let failed_content = extract_tag(output, "milestone_failed")
-  if not(failed_content.is_empty()) {
-    return MilestoneFailed(failed_content)
+  match @util.extract_tag_content(output, "milestone_failed") {
+    Some(content) =>
+      if not(content.is_empty()) {
+        return MilestoneFailed(content)
+      }
+    None => ()
   }
   // Check for <needs_rework>
-  let rework_content = extract_tag(output, "needs_rework")
-  if not(rework_content.is_empty()) {
-    let items = split_rework_items(rework_content)
-    return NeedsRework(items)
+  match @util.extract_tag_content(output, "needs_rework") {
+    Some(content) =>
+      if not(content.is_empty()) {
+        let items = split_rework_items(content)
+        return NeedsRework(items)
+      }
+    None => ()
   }
   // Check for <wave_approved>
   if output.contains("<wave_approved>") {
@@ -253,24 +259,6 @@ pub fn VerifierAgent::merge_verdicts(
 // --- Internal helpers ---
 
 ///|
-/// Extract content between <tag> and </tag>
-fn extract_tag(s : String, tag : String) -> String {
-  let open = "<" + tag + ">"
-  let close = "</" + tag + ">"
-  let open_idx = find_substring(s, open)
-  if open_idx < 0 {
-    return ""
-  }
-  let start = open_idx + open.length()
-  let close_idx = find_substring_from(s, close, start)
-  if close_idx < 0 {
-    // No closing tag, take rest of string
-    return trim(substring(s, start, s.to_array().length()))
-  }
-  trim(substring(s, start, close_idx))
-}
-
-///|
 /// Split rework items by newline
 fn split_rework_items(s : String) -> Array[String] {
   let items : Array[String] = []
@@ -295,28 +283,6 @@ fn find_substring(haystack : String, needle : String) -> Int {
     return -1
   }
   for i = 0; i <= h.length() - n.length(); i = i + 1 {
-    let mut found = true
-    for j = 0; j < n.length(); j = j + 1 {
-      if h[i + j] != n[j] {
-        found = false
-        break
-      }
-    }
-    if found {
-      return i
-    }
-  }
-  -1
-}
-
-///|
-fn find_substring_from(haystack : String, needle : String, from : Int) -> Int {
-  let h = haystack.to_array()
-  let n = needle.to_array()
-  if from + n.length() > h.length() {
-    return -1
-  }
-  for i = from; i <= h.length() - n.length(); i = i + 1 {
     let mut found = true
     for j = 0; j < n.length(); j = j + 1 {
       if h[i + j] != n[j] {

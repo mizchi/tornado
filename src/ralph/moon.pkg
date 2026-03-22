@@ -3,5 +3,6 @@ import {
   "mizchi/tornado/agent",
   "mizchi/tornado/config",
   "mizchi/tornado/prompts",
+  "mizchi/tornado/util",
   "moonbitlang/core/json",
 }
