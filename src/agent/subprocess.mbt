@@ -40,19 +40,31 @@ impl AgentBackend for SubprocessBackend with run(
 ) {
   on_output(@types.AgentEvent::StatusChange(@types.AgentStatus::Running))
   match self.kind {
-    ClaudeCode => self.run_claude_code(task, system_prompt, on_output)
-    Codex => self.run_codex(task, system_prompt, on_output)
-    Mock => self.run_claude_code(task, system_prompt, on_output)
+    ClaudeCode =>
+      self.run_sdk_backend(
+        task, system_prompt, on_output, "sessionId", "Claude", run_claude_sdk,
+      )
+    Codex =>
+      self.run_sdk_backend(
+        task, system_prompt, on_output, "threadId", "Codex", run_codex_sdk,
+      )
+    _ =>
+      self.run_sdk_backend(
+        task, system_prompt, on_output, "sessionId", "Claude", run_claude_sdk,
+      )
   }
 }
 
 ///|
-/// Run via Claude Agent SDK
-fn SubprocessBackend::run_claude_code(
+/// Common SDK backend runner, parameterized by session key name, label, and runner function
+fn SubprocessBackend::run_sdk_backend(
   self : SubprocessBackend,
   task : String,
   system_prompt : String,
   on_output : (@types.AgentEvent) -> Unit,
+  session_key : String,
+  label : String,
+  runner : (String) -> String,
 ) -> @types.AgentResult {
   // Build SDK options as JSON
   let opts : Map[String, Json] = {}
@@ -64,12 +76,12 @@ fn SubprocessBackend::run_claude_code(
     opts["model"] = self.model.to_json()
   }
   if not(self.session_id.is_empty()) {
-    opts["sessionId"] = self.session_id.to_json()
+    opts[session_key] = self.session_id.to_json()
   }
   let opts_json = Json::object(opts).stringify()
   on_output(
     @types.AgentEvent::Info(
-      "Launching: Claude" +
+      "Launching: \{label}" +
       (if not(self.session_id.is_empty()) {
         " (resume: \{self.session_id})"
       } else {
@@ -78,7 +90,7 @@ fn SubprocessBackend::run_claude_code(
     ),
   )
   // Run SDK via runner script
-  let raw_output = run_claude_sdk(opts_json)
+  let raw_output = runner(opts_json)
   if raw_output.has_prefix("ERROR:") {
     let err = raw_output
     on_output(@types.AgentEvent::StatusChange(@types.AgentStatus::Failed(err)))
@@ -201,45 +213,6 @@ pub fn parse_sdk_result_event(
       ),
     )
   }
-}
-
-///|
-/// Run via Codex SDK
-fn SubprocessBackend::run_codex(
-  self : SubprocessBackend,
-  task : String,
-  system_prompt : String,
-  on_output : (@types.AgentEvent) -> Unit,
-) -> @types.AgentResult {
-  let opts : Map[String, Json] = {}
-  opts["prompt"] = task.to_json()
-  if not(system_prompt.is_empty()) {
-    opts["systemPrompt"] = system_prompt.to_json()
-  }
-  if not(self.model.is_empty()) {
-    opts["model"] = self.model.to_json()
-  }
-  if not(self.session_id.is_empty()) {
-    opts["threadId"] = self.session_id.to_json()
-  }
-  let opts_json = Json::object(opts).stringify()
-  on_output(
-    @types.AgentEvent::Info(
-      "Launching: Codex" +
-      (if not(self.session_id.is_empty()) {
-        " (resume: \{self.session_id})"
-      } else {
-        " (new session)"
-      }),
-    ),
-  )
-  let raw_output = run_codex_sdk(opts_json)
-  if raw_output.has_prefix("ERROR:") {
-    let err = raw_output
-    on_output(@types.AgentEvent::StatusChange(@types.AgentStatus::Failed(err)))
-    return @types.AgentResult::failed_with_session(err, self.session_id)
-  }
-  self.parse_sdk_output(raw_output, on_output)
 }
 
 ///|
