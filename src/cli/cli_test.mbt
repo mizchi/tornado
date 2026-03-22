@@ -11,12 +11,12 @@ test "parse_cli_args flags only" {
     Run(
       config_path=config,
       plan_path=plan,
-      log_path=_log_path,
+      log_path=_,
       dev_kind=dev,
       review_kind=review,
       review_interval=ri,
       rlm~,
-      ralph=_ralph,
+      ralph=_,
       lang~,
       warnings~
     ) => {
@@ -41,13 +41,13 @@ test "parse_cli_args first positional file is plan" {
     Run(
       config_path=config,
       plan_path=plan,
-      log_path=_log_path,
+      log_path=_,
       dev_kind=dev,
-      review_kind=_review,
-      review_interval=_ri,
-      rlm=_rlm,
-      ralph=_ralph,
-      lang=_lang,
+      review_kind=_,
+      review_interval=_,
+      rlm=_,
+      ralph=_,
+      lang=_,
       warnings~
     ) => {
       inspect(config, content="None")
@@ -67,13 +67,13 @@ test "parse_cli_args supports --config=value" {
     Run(
       config_path=config,
       plan_path=plan,
-      log_path=_log_path,
+      log_path=_,
       dev_kind=dev,
       review_kind=review,
-      review_interval=_ri,
-      rlm=_rlm,
-      ralph=_ralph,
-      lang=_lang,
+      review_interval=_,
+      rlm=_,
+      ralph=_,
+      lang=_,
       warnings~
     ) => {
       inspect(config, content="Some(\"config.json\")")
@@ -94,13 +94,13 @@ test "parse_cli_args supports --config <value>" {
     Run(
       config_path=config,
       plan_path=plan,
-      log_path=_log_path,
+      log_path=_,
       dev_kind=dev,
       review_kind=review,
-      review_interval=_ri,
-      rlm=_rlm,
-      ralph=_ralph,
-      lang=_lang,
+      review_interval=_,
+      rlm=_,
+      ralph=_,
+      lang=_,
       warnings~
     ) => {
       inspect(config, content="Some(\"config.json\")")
@@ -197,13 +197,13 @@ test "parse_cli_args warns on non-file positional argument" {
     Run(
       config_path=config,
       plan_path=plan,
-      log_path=_log_path,
-      dev_kind=_dev,
-      review_kind=_review,
-      review_interval=_ri,
-      rlm=_rlm,
-      ralph=_ralph,
-      lang=_lang,
+      log_path=_,
+      dev_kind=_,
+      review_kind=_,
+      review_interval=_,
+      rlm=_,
+      ralph=_,
+      lang=_,
       warnings~
     ) => {
       inspect(config, content="None")
@@ -221,15 +221,15 @@ test "parse_cli_args --review-interval=3" {
   let parsed = @cli.parse_cli_args(args, file_exists_mock)
   match parsed {
     Run(
-      config_path=_config,
-      plan_path=_plan,
-      log_path=_log_path,
+      config_path=_,
+      plan_path=_,
+      log_path=_,
       dev_kind=dev,
-      review_kind=_review,
+      review_kind=_,
       review_interval=ri,
       rlm~,
-      ralph=_ralph,
-      lang=_lang,
+      ralph=_,
+      lang=_,
       warnings~
     ) => {
       inspect(dev, content="Some(Codex)")
@@ -247,15 +247,15 @@ test "parse_cli_args --rlm flag" {
   let parsed = @cli.parse_cli_args(args, file_exists_mock)
   match parsed {
     Run(
-      config_path=_config,
+      config_path=_,
       plan_path=plan,
-      log_path=_log_path,
-      dev_kind=_dev,
-      review_kind=_review,
-      review_interval=_ri,
+      log_path=_,
+      dev_kind=_,
+      review_kind=_,
+      review_interval=_,
       rlm~,
-      ralph=_ralph,
-      lang=_lang,
+      ralph=_,
+      lang=_,
       warnings~
     ) => {
       inspect(plan, content="Some(\"plan.md\")")
@@ -272,15 +272,15 @@ test "parse_cli_args --review-interval invalid warns" {
   let parsed = @cli.parse_cli_args(args, file_exists_mock)
   match parsed {
     Run(
-      config_path=_config,
-      plan_path=_plan,
-      log_path=_log_path,
-      dev_kind=_dev,
-      review_kind=_review,
+      config_path=_,
+      plan_path=_,
+      log_path=_,
+      dev_kind=_,
+      review_kind=_,
       review_interval=ri,
-      rlm=_rlm,
-      ralph=_ralph,
-      lang=_lang,
+      rlm=_,
+      ralph=_,
+      lang=_,
       warnings~
     ) => {
       inspect(ri, content="None")
@@ -297,15 +297,15 @@ test "parse_cli_args --review-interval=0 warns" {
   let parsed = @cli.parse_cli_args(args, file_exists_mock)
   match parsed {
     Run(
-      config_path=_config,
-      plan_path=_plan,
-      log_path=_log_path,
-      dev_kind=_dev,
-      review_kind=_review,
+      config_path=_,
+      plan_path=_,
+      log_path=_,
+      dev_kind=_,
+      review_kind=_,
       review_interval=ri,
-      rlm=_rlm,
-      ralph=_ralph,
-      lang=_lang,
+      rlm=_,
+      ralph=_,
+      lang=_,
       warnings~
     ) => {
       inspect(ri, content="None")
@@ -322,14 +322,14 @@ test "parse_cli_args --lang=ja" {
   let parsed = @cli.parse_cli_args(args, file_exists_mock)
   match parsed {
     Run(
-      config_path=_config,
-      plan_path=_plan,
-      log_path=_log_path,
+      config_path=_,
+      plan_path=_,
+      log_path=_,
       dev_kind=dev,
-      review_kind=_review,
-      review_interval=_ri,
-      rlm=_rlm,
-      ralph=_ralph,
+      review_kind=_,
+      review_interval=_,
+      rlm=_,
+      ralph=_,
       lang~,
       warnings~
     ) => {
@@ -347,14 +347,14 @@ test "parse_cli_args --lang=en" {
   let parsed = @cli.parse_cli_args(args, file_exists_mock)
   match parsed {
     Run(
-      config_path=_config,
-      plan_path=_plan,
-      log_path=_log_path,
-      dev_kind=_dev,
-      review_kind=_review,
-      review_interval=_ri,
-      rlm=_rlm,
-      ralph=_ralph,
+      config_path=_,
+      plan_path=_,
+      log_path=_,
+      dev_kind=_,
+      review_kind=_,
+      review_interval=_,
+      rlm=_,
+      ralph=_,
       lang~,
       warnings~
     ) => {
@@ -371,14 +371,14 @@ test "parse_cli_args --lang=auto" {
   let parsed = @cli.parse_cli_args(args, file_exists_mock)
   match parsed {
     Run(
-      config_path=_config,
-      plan_path=_plan,
-      log_path=_log_path,
-      dev_kind=_dev,
-      review_kind=_review,
-      review_interval=_ri,
-      rlm=_rlm,
-      ralph=_ralph,
+      config_path=_,
+      plan_path=_,
+      log_path=_,
+      dev_kind=_,
+      review_kind=_,
+      review_interval=_,
+      rlm=_,
+      ralph=_,
       lang~,
       warnings~
     ) => {
@@ -395,14 +395,14 @@ test "parse_cli_args --lang=invalid warns" {
   let parsed = @cli.parse_cli_args(args, file_exists_mock)
   match parsed {
     Run(
-      config_path=_config,
-      plan_path=_plan,
-      log_path=_log_path,
-      dev_kind=_dev,
-      review_kind=_review,
-      review_interval=_ri,
-      rlm=_rlm,
-      ralph=_ralph,
+      config_path=_,
+      plan_path=_,
+      log_path=_,
+      dev_kind=_,
+      review_kind=_,
+      review_interval=_,
+      rlm=_,
+      ralph=_,
       lang~,
       warnings~
     ) => {
@@ -451,15 +451,15 @@ test "parse_cli_args --ralph flag" {
   let parsed = @cli.parse_cli_args(args, file_exists_mock)
   match parsed {
     Run(
-      config_path=_config,
-      plan_path=_plan,
-      log_path=_log_path,
+      config_path=_,
+      plan_path=_,
+      log_path=_,
       dev_kind=dev,
-      review_kind=_review,
-      review_interval=_ri,
+      review_kind=_,
+      review_interval=_,
       rlm~,
       ralph~,
-      lang=_lang,
+      lang=_,
       warnings~
     ) => {
       inspect(ralph, content="true")
@@ -477,15 +477,15 @@ test "parse_cli_args --ralph and --rlm together" {
   let parsed = @cli.parse_cli_args(args, file_exists_mock)
   match parsed {
     Run(
-      config_path=_config,
-      plan_path=_plan,
-      log_path=_log_path,
-      dev_kind=_dev,
-      review_kind=_review,
-      review_interval=_ri,
+      config_path=_,
+      plan_path=_,
+      log_path=_,
+      dev_kind=_,
+      review_kind=_,
+      review_interval=_,
       rlm~,
       ralph~,
-      lang=_lang,
+      lang=_,
       warnings~
     ) => {
       inspect(ralph, content="true")
@@ -502,16 +502,16 @@ test "parse_cli_args ralph defaults to false" {
   let parsed = @cli.parse_cli_args(args, file_exists_mock)
   match parsed {
     Run(
-      config_path=_config,
-      plan_path=_plan,
-      log_path=_log_path,
-      dev_kind=_dev,
-      review_kind=_review,
-      review_interval=_ri,
-      rlm=_rlm,
+      config_path=_,
+      plan_path=_,
+      log_path=_,
+      dev_kind=_,
+      review_kind=_,
+      review_interval=_,
+      rlm=_,
       ralph~,
-      lang=_lang,
-      warnings=_warnings
+      lang=_,
+      warnings=_
     ) => inspect(ralph, content="false")
     _ => panic()
   }
