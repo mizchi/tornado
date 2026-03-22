@@ -306,24 +306,6 @@ fn log(level : String, msg : String) -> Unit {
 }
 
 ///|
-/// Delegate to @display module
-fn truncate(s : String, max : Int) -> String {
-  @display.truncate(s, max)
-}
-
-///|
-/// Delegate to @display module
-fn format_tool_call(name : String, input_json : String) -> String {
-  @display.format_tool_call(name, input_json)
-}
-
-///|
-/// Delegate to @display module
-fn format_tool_result(name : String, output : String) -> String {
-  @display.format_tool_result(name, output)
-}
-
-///|
 fn run_validate(config_path : String) -> Unit {
   let content = read_file_sync(config_path)
   if content.has_prefix("ERROR:") {
@@ -489,7 +471,7 @@ fn build_initial_task_from_todos() -> String {
     if not(content.has_prefix("ERROR:")) && not(content.is_empty()) {
       found = true
       buf.write_string("## \{file}\n```\n")
-      buf.write_string(truncate(content, 3000))
+      buf.write_string(@display.truncate(content, 3000))
       buf.write_string("\n```\n\n")
     }
   }
@@ -559,7 +541,7 @@ fn build_plan_file_task(plan_path : String, review_summary : String) -> String {
   )
   if not(review_summary.is_empty()) {
     buf.write_string("## Review Feedback\n")
-    buf.write_string(truncate(review_summary, 2000))
+    buf.write_string(@display.truncate(review_summary, 2000))
     buf.write_string("\n\n")
   }
   if not(context.is_empty()) {
@@ -613,7 +595,7 @@ fn build_improvement_task(
   }
   if not(prev_output.is_empty()) {
     buf.write_string("## Previous Iteration Output\n")
-    buf.write_string(truncate(prev_output, 2000))
+    buf.write_string(@display.truncate(prev_output, 2000))
     buf.write_string("\n\n")
   }
   buf.write_string("## Improvement Protocol\n")
@@ -658,12 +640,12 @@ fn build_cycle_summary(
   for output in dev_outputs {
     i += 1
     buf.write_string("### Dev Step \{i}\n")
-    buf.write_string(truncate(output, 1000))
+    buf.write_string(@display.truncate(output, 1000))
     buf.write_string("\n\n")
   }
   if not(review_summary.is_empty()) {
     buf.write_string("### Review\n")
-    buf.write_string(truncate(review_summary, 500))
+    buf.write_string(@display.truncate(review_summary, 500))
     buf.write_string("\n")
   }
   buf.to_string()
@@ -728,7 +710,7 @@ fn build_continuation_task(
   buf.write_string("\n\n")
   if not(review_summary.is_empty()) {
     buf.write_string("## Review Feedback\n")
-    buf.write_string(truncate(review_summary, 2000))
+    buf.write_string(@display.truncate(review_summary, 2000))
     buf.write_string("\n\n")
   }
   buf.write_string("## Your Task\n")
@@ -819,7 +801,7 @@ fn run_repl(
       Some(saved) => {
         log("RESUME", "Found saved session (iteration \{saved.iteration})")
         log("RESUME", "  Phase: \{saved.phase}")
-        log("RESUME", "  Task: \{truncate(saved.task, 80)}")
+        log("RESUME", "  Task: \{@display.truncate(saved.task, 80)}")
         for entry in saved.agent_sessions {
           log("RESUME", "  Agent \{entry.0}: session \{entry.1}")
           agent_sessions[entry.0] = entry.1
@@ -887,11 +869,14 @@ fn run_repl(
   while true {
     iteration += 1
     log("HEARTBEAT", "=== Iteration \{iteration} ===")
-    log("HEARTBEAT", "Task: \{truncate(next_task, 120)}")
+    log("HEARTBEAT", "Task: \{@display.truncate(next_task, 120)}")
     // ── Check for user interrupt before dev ──
     let interrupt = check_interrupt()
     if not(interrupt.is_empty()) {
-      log("USER", "Applying user instructions: \{truncate(interrupt, 100)}")
+      log(
+        "USER",
+        "Applying user instructions: \{@display.truncate(interrupt, 100)}",
+      )
       next_task = next_task +
         "\n\n## Additional Instructions from User\n" +
         interrupt
@@ -939,13 +924,13 @@ fn run_repl(
       on_usage~,
     )
     dev_since_review += 1
-    accumulated_dev_outputs.push(truncate(dev_result, 5000))
+    accumulated_dev_outputs.push(@display.truncate(dev_result, 5000))
     // ── Check for user interrupt after dev ──
     let post_dev_interrupt = check_interrupt()
     if not(post_dev_interrupt.is_empty()) {
       log(
         "USER",
-        "User instructions for review: \{truncate(post_dev_interrupt, 100)}",
+        "User instructions for review: \{@display.truncate(post_dev_interrupt, 100)}",
       )
     }
     // ── Skip review if dev produced no output (likely failed) ──
@@ -970,7 +955,7 @@ fn run_repl(
         "HEARTBEAT",
         "Dev \{dev_since_review}/\{config.review_interval} before review",
       )
-      log("SUMMARY", "Dev output: \{truncate(dev_result, 300)}")
+      log("SUMMARY", "Dev output: \{@display.truncate(dev_result, 300)}")
       log("HEARTBEAT", "=== Iteration \{iteration} complete (no review) ===")
       log(
         "USAGE",
@@ -993,7 +978,10 @@ fn run_repl(
       // Build next task without review feedback
       let user_input = check_interrupt()
       if not(user_input.is_empty()) {
-        log("USER", "Using user instructions: \{truncate(user_input, 100)}")
+        log(
+          "USER",
+          "Using user instructions: \{@display.truncate(user_input, 100)}",
+        )
         next_task = user_input
       } else {
         next_task = build_next_task(
@@ -1052,7 +1040,7 @@ fn run_repl(
       iteration, accumulated_dev_outputs, review_text,
     )
     last_cycle_summary = cycle_summary
-    log("SUMMARY", truncate(cycle_summary, 500))
+    log("SUMMARY", @display.truncate(cycle_summary, 500))
     // Reset accumulated state after review
     dev_since_review = 0
     accumulated_dev_outputs.clear()
@@ -1082,7 +1070,10 @@ fn run_repl(
         // Check for user interrupt → use as next task
         let user_input = check_interrupt()
         if not(user_input.is_empty()) {
-          log("USER", "Using user instructions: \{truncate(user_input, 100)}")
+          log(
+            "USER",
+            "Using user instructions: \{@display.truncate(user_input, 100)}",
+          )
           next_task = user_input
         } else {
           // Auto-continue: build next task for dev
@@ -1126,7 +1117,10 @@ fn run_repl(
         // Check for queued user input first
         let queued = check_interrupt()
         if not(queued.is_empty()) {
-          log("USER", "Using queued instructions: \{truncate(queued, 100)}")
+          log(
+            "USER",
+            "Using queued instructions: \{@display.truncate(queued, 100)}",
+          )
           next_task = queued
         } else {
           // Wait for user input via interrupt file
@@ -1141,7 +1135,7 @@ fn run_repl(
               sleep_ms(500)
             }
           }
-          log("USER", "Received: \{truncate(user_input, 100)}")
+          log("USER", "Received: \{@display.truncate(user_input, 100)}")
           next_task = user_input
         }
       }
@@ -1212,11 +1206,20 @@ fn run_dev(
             }
           @types.AgentEvent::Info(msg) => log("INFO", "\{id}: \{msg}")
           @types.AgentEvent::ToolCall(name=tool_name, input=tool_input) =>
-            log("CALL", "\{id} \{format_tool_call(tool_name, tool_input)}")
+            log(
+              "CALL",
+              "\{id} \{@display.format_tool_call(tool_name, tool_input)}",
+            )
           @types.AgentEvent::ToolResult(name=tool_name, output=tool_output) =>
-            log("DONE", "\{id} \{format_tool_result(tool_name, tool_output)}")
+            log(
+              "DONE",
+              "\{id} \{@display.format_tool_result(tool_name, tool_output)}",
+            )
           @types.AgentEvent::SubAgentStart(agent_type~, task=desc) =>
-            log("AGENT", "\{id} spawned \{agent_type}: \{truncate(desc, 80)}")
+            log(
+              "AGENT",
+              "\{id} spawned \{agent_type}: \{@display.truncate(desc, 80)}",
+            )
           @types.AgentEvent::SubAgentEnd(agent_type~) =>
             log("AGENT", "\{id} \{agent_type} completed")
           @types.AgentEvent::StatusChange(status) =>
@@ -1241,7 +1244,7 @@ fn run_dev(
           result.content
         }
         Failed(err) => {
-          log("DEV", "\{id} failed: \{truncate(err, 100)}")
+          log("DEV", "\{id} failed: \{@display.truncate(err, 100)}")
           result.content
         }
         _ => {
@@ -1310,12 +1313,12 @@ fn run_review(
           @types.AgentEvent::ToolCall(name=tool_name, input=tool_input) =>
             log(
               "CALL",
-              "\{reviewer_id} \{format_tool_call(tool_name, tool_input)}",
+              "\{reviewer_id} \{@display.format_tool_call(tool_name, tool_input)}",
             )
           @types.AgentEvent::ToolResult(name=tool_name, output=tool_output) =>
             log(
               "DONE",
-              "\{reviewer_id} \{format_tool_result(tool_name, tool_output)}",
+              "\{reviewer_id} \{@display.format_tool_result(tool_name, tool_output)}",
             )
           @types.AgentEvent::StatusChange(status) =>
             log("REVIEW", "\{reviewer_id} -> \{status}")
