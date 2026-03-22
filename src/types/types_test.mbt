@@ -150,6 +150,24 @@ test "RalphPhase show" {
 }
 
 ///|
+test "AgentResult::failed creates failure result" {
+  let r = @types.AgentResult::failed("something went wrong")
+  inspect(r.content, content="")
+  inspect(r.status, content="Failed(\"something went wrong\")")
+  inspect(r.error, content="Some(\"something went wrong\")")
+  inspect(r.session_id, content="")
+}
+
+///|
+test "AgentResult::failed_with_session creates failure with session" {
+  let r = @types.AgentResult::failed_with_session("err", "sess-123")
+  inspect(r.content, content="")
+  inspect(r.status, content="Failed(\"err\")")
+  inspect(r.error, content="Some(\"err\")")
+  inspect(r.session_id, content="sess-123")
+}
+
+///|
 test "VerifierVerdict show" {
   inspect(@types.VerifierVerdict::Approved, content="Approved")
   inspect(

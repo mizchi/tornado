@@ -104,12 +104,7 @@ impl AgentBackend for FailingMockBackend with run(
   on_output(
     @types.AgentEvent::StatusChange(@types.AgentStatus::Failed(self.error_msg)),
   )
-  {
-    content: "",
-    status: @types.AgentStatus::Failed(self.error_msg),
-    error: Some(self.error_msg),
-    session_id: "",
-  }
+  @types.AgentResult::failed(self.error_msg)
 }
 
 ///|

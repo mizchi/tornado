@@ -68,25 +68,17 @@ fn run_parallel_sdk_backend(
         match entry {
           String(jsonl) => results.push(parse_jsonl_result(jsonl, on_output))
           _ =>
-            results.push({
-              content: "",
-              status: @types.AgentStatus::Failed(
+            results.push(
+              @types.AgentResult::failed(
                 "ERROR: invalid parallel SDK result entry",
               ),
-              error: Some("ERROR: invalid parallel SDK result entry"),
-              session_id: "",
-            })
+            )
         }
       }
       while results.length() < tasks.length() {
-        results.push({
-          content: "",
-          status: @types.AgentStatus::Failed(
-            "ERROR: missing parallel SDK result",
-          ),
-          error: Some("ERROR: missing parallel SDK result"),
-          session_id: "",
-        })
+        results.push(
+          @types.AgentResult::failed("ERROR: missing parallel SDK result"),
+        )
       }
       results
     }
@@ -105,24 +97,9 @@ fn replicate_failed_result(
 ) -> Array[@types.AgentResult] {
   let results : Array[@types.AgentResult] = []
   for _ in 0..<count {
-    results.push({
-      content: "",
-      status: @types.AgentStatus::Failed(err),
-      error: Some(err),
-      session_id: "",
-    })
+    results.push(@types.AgentResult::failed(err))
   }
   results
-}
-
-///|
-fn failed_result(err : String) -> @types.AgentResult {
-  {
-    content: "",
-    status: @types.AgentStatus::Failed(err),
-    error: Some(err),
-    session_id: "",
-  }
 }
 
 ///|
@@ -133,7 +110,7 @@ pub fn parse_jsonl_result(
   if jsonl.has_prefix("ERROR:") {
     let err = jsonl
     on_output(@types.AgentEvent::StatusChange(@types.AgentStatus::Failed(err)))
-    return failed_result(err)
+    return @types.AgentResult::failed(err)
   }
   let buf = StringBuilder::new()
   let line_buf = OutputLineBuffer::new()

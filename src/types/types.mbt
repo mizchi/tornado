@@ -167,6 +167,21 @@ pub(all) struct AgentResult {
 }
 
 ///|
+/// Create a failed AgentResult with the given error message
+pub fn AgentResult::failed(err : String) -> AgentResult {
+  { content: "", status: Failed(err), error: Some(err), session_id: "" }
+}
+
+///|
+/// Create a failed AgentResult with the given error message and session id
+pub fn AgentResult::failed_with_session(
+  err : String,
+  session_id : String,
+) -> AgentResult {
+  { content: "", status: Failed(err), error: Some(err), session_id }
+}
+
+///|
 /// Create a new session
 pub fn Session::new(
   id : String,
