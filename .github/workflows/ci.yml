@@ -1,0 +1,31 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> $GITHUB_PATH
+      - run: npm ci
+      - run: moon fmt --check
+      - run: moon check --target js
+      - run: npm run build:sdk
+      - run: npx prettier --check 'sdk/**/*.{mts,mjs}'
+      - run: node --test sdk/*.test.mjs
+      - run: moon test --target js
+      - name: Check test coverage
+        run: |
+          node --test --experimental-test-coverage sdk/*.test.mjs 2>&1 | tee coverage-output.txt
+          # Extract and display coverage summary
+          grep -E '(all files|line|branch|function)' coverage-output.txt || true

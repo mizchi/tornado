@@ -38,6 +38,10 @@ run *args: build
 clean:
   moon clean
 
+coverage:
+  npm run -s build:sdk
+  node --test --experimental-test-coverage sdk/*.test.mjs
+
 fmt:
   moon fmt
 

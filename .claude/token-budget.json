@@ -1,0 +1,6 @@
+{
+  "default_model": "sonnet",
+  "budget_per_session": "$5",
+  "escalation_threshold": "architecture decisions, security review",
+  "notes": "Use haiku for formatting tasks, opus for design decisions"
+}

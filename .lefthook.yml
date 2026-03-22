@@ -1,0 +1,20 @@
+pre-commit:
+  parallel: true
+  commands:
+    moon-fmt:
+      glob: "src/**/*.mbt"
+      run: moon fmt --check
+    prettier:
+      glob: "sdk/**/*.{mts,mjs}"
+      run: npx prettier --check {staged_files}
+    typecheck:
+      glob: "sdk/**/*.mts"
+      run: npx tsc --noEmit -p tsconfig.sdk.json
+    secrets-check:
+      glob: "**/*.{js,mjs,ts,mts,json,yml,yaml,sh}"
+      run: "grep -rnE '(AKIA[0-9A-Z]{16}|sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36})' {staged_files} && exit 1 || exit 0"
+
+pre-push:
+  commands:
+    test:
+      run: just test

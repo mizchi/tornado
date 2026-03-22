@@ -1,0 +1,14 @@
+{
+  "Stop": [
+    {
+      "matcher": "*",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "bash .claude/hooks/cost-note.sh",
+          "timeout": 10000
+        }
+      ]
+    }
+  ]
+}
