@@ -13,6 +13,14 @@
 
 ### Step 1: チケット取得
 
+チケットが既に `in_progress`（前セッションからの復帰、`RESUMED=true`）の場合:
+- claim をスキップする（既にアサイン済み）
+- 前セッションの未コミット変更をリセットしてクリーンスタート:
+  ```bash
+  git checkout -- .
+  ```
+
+それ以外の場合:
 ```bash
 bd update <TICKET_ID> --claim
 ```
