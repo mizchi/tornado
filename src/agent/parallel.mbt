@@ -206,37 +206,56 @@ fn parse_sdk_event_json(
     Some(String(ts)) => wrap_output_with_ts(on_output, ts)
     _ => on_output
   }
-  match map.get("type") {
-    Some(String(event_type)) =>
-      match event_type {
-        "system" => parse_system_event(map, ts_on_output)
-        "assistant" => parse_tool_calls(map, ts_on_output)
-        "stream_event" =>
-          match map.get("event") {
-            Some(Object(event)) =>
-              parse_sdk_stream_event(event, buf, line_buf, ts_on_output)
-            _ => ()
-          }
-        "tool_result" => parse_tool_result(map, ts_on_output)
-        "content_block_start" => parse_content_block_start(map, ts_on_output)
-        "result" => {
-          parse_sdk_result_event(map, ts_on_output)
-          match map.get("is_error") {
-            Some(True) => {
-              match map.get("result") {
-                Some(String(err_msg)) => error_buf.write_string(err_msg)
-                _ => ()
-              }
-              return true
-            }
-            _ => ()
-          }
-        }
+  let event_type = match map.get("type") {
+    Some(String(t)) => t
+    _ => return false
+  }
+  dispatch_sdk_event(event_type, map, buf, line_buf, error_buf, ts_on_output)
+}
+
+///|
+fn dispatch_sdk_event(
+  event_type : String,
+  map : Map[String, Json],
+  buf : StringBuilder,
+  line_buf : OutputLineBuffer,
+  error_buf : StringBuilder,
+  on_output : (@types.AgentEvent) -> Unit,
+) -> Bool {
+  match event_type {
+    "system" => parse_system_event(map, on_output)
+    "assistant" => parse_tool_calls(map, on_output)
+    "stream_event" =>
+      match map.get("event") {
+        Some(Object(event)) =>
+          parse_sdk_stream_event(event, buf, line_buf, on_output)
         _ => ()
       }
+    "tool_result" => parse_tool_result(map, on_output)
+    "content_block_start" => parse_content_block_start(map, on_output)
+    "result" => return parse_sdk_result_error(map, error_buf, on_output)
     _ => ()
   }
   false
+}
+
+///|
+fn parse_sdk_result_error(
+  map : Map[String, Json],
+  error_buf : StringBuilder,
+  on_output : (@types.AgentEvent) -> Unit,
+) -> Bool {
+  parse_sdk_result_event(map, on_output)
+  match map.get("is_error") {
+    Some(True) => {
+      match map.get("result") {
+        Some(String(err_msg)) => error_buf.write_string(err_msg)
+        _ => ()
+      }
+      true
+    }
+    _ => false
+  }
 }
 
 ///|
@@ -263,30 +282,38 @@ fn parse_sdk_stream_event(
   line_buf : OutputLineBuffer,
   on_output : (@types.AgentEvent) -> Unit,
 ) -> Unit {
-  match event.get("type") {
-    Some(String(event_type)) =>
-      match event_type {
-        "content_block_start" => parse_content_block_start(event, on_output)
-        "content_block_delta" =>
-          match event.get("delta") {
-            Some(Object(delta)) =>
-              match delta.get("type") {
-                Some(String("text_delta")) =>
-                  match delta.get("text") {
-                    Some(String(text)) => {
-                      buf.write_string(text)
-                      line_buf.push(text, fn(line) {
-                        on_output(@types.AgentEvent::OutputLine(line))
-                      })
-                    }
-                    _ => ()
-                  }
-                _ => ()
-              }
-            _ => ()
-          }
-        _ => ()
-      }
+  let event_type = match event.get("type") {
+    Some(String(t)) => t
+    _ => return
+  }
+  match event_type {
+    "content_block_start" => parse_content_block_start(event, on_output)
+    "content_block_delta" => apply_text_delta(event, buf, line_buf, on_output)
     _ => ()
   }
+}
+
+///|
+fn apply_text_delta(
+  event : Map[String, Json],
+  buf : StringBuilder,
+  line_buf : OutputLineBuffer,
+  on_output : (@types.AgentEvent) -> Unit,
+) -> Unit {
+  let delta = match event.get("delta") {
+    Some(Object(d)) => d
+    _ => return
+  }
+  match delta.get("type") {
+    Some(String("text_delta")) => ()
+    _ => return
+  }
+  let text = match delta.get("text") {
+    Some(String(t)) => t
+    _ => return
+  }
+  buf.write_string(text)
+  line_buf.push(text, fn(line) {
+    on_output(@types.AgentEvent::OutputLine(line))
+  })
 }
