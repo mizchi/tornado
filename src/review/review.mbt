@@ -149,40 +149,6 @@ pub fn ReviewAgent::parse_verdict(
 }
 
 ///|
-/// Run a single-perspective review on a completed task
-pub fn ReviewAgent::review_perspective(
-  self : ReviewAgent,
-  perspective : ReviewPerspective,
-  task : @types.Task,
-  backend : @agent.BoxedBackend,
-  context : String,
-  on_event? : (@types.AgentEvent) -> Unit = fn(_) {  },
-) -> @types.ReviewResult {
-  let task_output = task.result.unwrap_or("")
-  let prompt = self.build_prompt(
-    perspective,
-    task.description,
-    task_output,
-    context,
-  )
-  let system = self.build_system_prompt(perspective)
-  let output = backend.run(prompt, system, on_event)
-  // If the review backend failed, reject rather than silently approving
-  let verdict = match output.status {
-    Failed(err) =>
-      @types.ReviewVerdict::Rejected("Review backend failed: \{err}")
-    _ => self.parse_verdict(output.content)
-  }
-  let result : @types.ReviewResult = {
-    reviewer_id: self.reviewer_id,
-    verdict,
-    summary: output.content,
-    file_path: "",
-  }
-  result
-}
-
-///|
 /// Run all three perspectives in order, return merged result
 pub fn ReviewAgent::review(
   self : ReviewAgent,
