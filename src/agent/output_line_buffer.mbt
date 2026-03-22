@@ -20,9 +20,10 @@ pub fn OutputLineBuffer::push(
 ) -> Unit {
   self.buf.write_string(chunk)
   let content = self.buf.to_string()
+  let newline : UInt16 = '\n'.to_int().to_uint16()
   let mut last_nl = -1
   for i in 0..<content.length() {
-    if content[i] == '\n'.to_int().to_uint16() {
+    if content[i] == newline {
       last_nl = i
     }
   }
