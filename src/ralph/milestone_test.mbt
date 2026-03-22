@@ -162,9 +162,9 @@ test "get_wave_tasks filters by wave" {
     #|  ]
     #|}
   let mgr = @ralph.MilestoneManager::load_from_json(json)
-  let wave0 = mgr.get_wave_tasks(mgr.milestones[0], 0)
+  let wave0 = mgr.milestones[0].get_wave_tasks(0)
   assert_true(wave0.length() == 2)
-  let wave1 = mgr.get_wave_tasks(mgr.milestones[0], 1)
+  let wave1 = mgr.milestones[0].get_wave_tasks(1)
   assert_true(wave1.length() == 1)
   inspect(wave1[0].id, content="m1-t3")
 }
@@ -184,7 +184,7 @@ test "has_undone_tasks detects pending tasks" {
     #|  ]
     #|}
   let mgr = @ralph.MilestoneManager::load_from_json(json)
-  assert_true(mgr.has_undone_tasks(mgr.milestones[0]))
+  assert_true(mgr.milestones[0].has_undone_tasks())
 }
 
 ///|
@@ -201,7 +201,7 @@ test "has_undone_tasks returns false when all done" {
     #|  ]
     #|}
   let mgr = @ralph.MilestoneManager::load_from_json(json)
-  assert_true(not(mgr.has_undone_tasks(mgr.milestones[0])))
+  assert_true(not(mgr.milestones[0].has_undone_tasks()))
 }
 
 ///|
@@ -220,7 +220,7 @@ test "next_wave_number finds lowest pending wave" {
     #|  ]
     #|}
   let mgr = @ralph.MilestoneManager::load_from_json(json)
-  inspect(mgr.next_wave_number(mgr.milestones[0]), content="Some(1)")
+  inspect(mgr.milestones[0].next_wave_number(), content="Some(1)")
 }
 
 ///|

@@ -77,58 +77,6 @@ pub fn MilestoneManager::next_pending_milestone(
 }
 
 ///|
-/// Get all tasks in a specific wave
-pub fn MilestoneManager::get_wave_tasks(
-  _self : MilestoneManager,
-  milestone : @types.Milestone,
-  wave : Int,
-) -> Array[@types.RalphTask] {
-  let result : Array[@types.RalphTask] = []
-  for t in milestone.tasks {
-    if t.wave == wave {
-      result.push(t)
-    }
-  }
-  result
-}
-
-///|
-/// Check if milestone has undone tasks
-pub fn MilestoneManager::has_undone_tasks(
-  _self : MilestoneManager,
-  milestone : @types.Milestone,
-) -> Bool {
-  milestone.tasks
-  .iter()
-  .any(fn(t) {
-    match t.status {
-      Pending | InProgress(_) => true
-      _ => false
-    }
-  })
-}
-
-///|
-/// Get the next wave number that has pending tasks
-pub fn MilestoneManager::next_wave_number(
-  _self : MilestoneManager,
-  milestone : @types.Milestone,
-) -> Int? {
-  let mut min_wave : Int? = None
-  for t in milestone.tasks {
-    match t.status {
-      Pending | InProgress(_) =>
-        match min_wave {
-          None => min_wave = Some(t.wave)
-          Some(w) => if t.wave < w { min_wave = Some(t.wave) }
-        }
-      _ => ()
-    }
-  }
-  min_wave
-}
-
-///|
 /// Check if all milestones are done
 pub fn MilestoneManager::all_milestones_done(self : MilestoneManager) -> Bool {
   self.milestones

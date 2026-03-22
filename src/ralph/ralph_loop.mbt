@@ -122,8 +122,8 @@ fn RalphLoop::run_milestone(
   }
   milestone.status = @types.MilestoneStatus::InProgress
   self.save_milestones()
-  while self.milestone_manager.has_undone_tasks(milestone) {
-    let wave = self.milestone_manager.next_wave_number(milestone)
+  while milestone.has_undone_tasks() {
+    let wave = milestone.next_wave_number()
     match wave {
       None => break
       Some(wave_num) => {
@@ -165,7 +165,7 @@ fn RalphLoop::run_wave(
 ) -> Bool {
   self.current_phase = ExecutingWave(milestone.id, wave)
   emit_info(self, "Executing wave \{wave} of \{milestone.id}")
-  let tasks = self.milestone_manager.get_wave_tasks(milestone, wave)
+  let tasks = milestone.get_wave_tasks(wave)
   let pending_tasks : Array[@types.RalphTask] = []
   let mut done_count = 0
   for task in tasks {
