@@ -6,6 +6,7 @@ import {
   "mizchi/tornado/review",
   "mizchi/tornado/display",
   "mizchi/tornado/ralph",
+  "mizchi/tornado/cmd/helpers",
   "mizchi/x/sys",
   "moonbitlang/core/json",
 }

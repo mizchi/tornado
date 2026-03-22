@@ -17,11 +17,7 @@ fn detect_lang() -> String {
 ///|
 /// Resolve --lang flag: None/"auto" → detect, otherwise use as-is
 fn resolve_lang(cli_lang : String?) -> String {
-  match cli_lang {
-    None => detect_lang()
-    Some("auto") => detect_lang()
-    Some(lang) => lang
-  }
+  @helpers.resolve_lang(cli_lang, detect_lang)
 }
 
 ///|
@@ -264,22 +260,7 @@ fn load_config(config_path : String?) -> @config.ProjectConfig {
 /// Extract embedded [TS:HH:MM:SS] prefix from a message.
 /// Returns (timestamp, remaining_message). If no prefix found, uses now_timestamp().
 fn extract_event_ts(msg : String) -> (String, String) {
-  // Format: [TS:HH:MM:SS] rest...
-  if msg.has_prefix("[TS:") {
-    // Find the closing bracket
-    let mut end = 4
-    while end < msg.length() && msg[end] != ']'.to_int().to_uint16() {
-      end = end + 1
-    }
-    if end < msg.length() {
-      let ts = msg.unsafe_substring(start=4, end~)
-      // Skip "] " after the bracket
-      let rest_start = if end + 2 <= msg.length() { end + 2 } else { end + 1 }
-      let rest = msg.unsafe_substring(start=rest_start, end=msg.length())
-      return (ts, rest)
-    }
-  }
-  (now_timestamp(), msg)
+  @helpers.extract_event_ts(msg, now_timestamp)
 }
 
 ///|
@@ -358,108 +339,21 @@ fn run_validate(config_path : String) -> Unit {
 // ── Session persistence ──────────────────────────────────────
 
 ///|
-/// Persisted session state
-struct SessionState {
-  iteration : Int
-  phase : String // "dev" | "review" | "idle"
-  task : String
-  dev_output : String
-  review_summary : String
-  agent_sessions : Map[String, String]
-  dev_since_review : Int
-  accumulated_dev_outputs : Array[String]
-}
-
-///|
 /// Save session state to .tornado/session.json
-fn save_session(state : SessionState) -> Unit {
-  let sessions_map : Map[String, Json] = {}
-  for entry in state.agent_sessions {
-    sessions_map[entry.0] = entry.1.to_json()
-  }
-  let obj : Map[String, Json] = {}
-  obj["iteration"] = state.iteration.to_json()
-  obj["phase"] = state.phase.to_json()
-  obj["task"] = state.task.to_json()
-  obj["dev_output"] = state.dev_output.to_json()
-  obj["review_summary"] = state.review_summary.to_json()
-  obj["agent_sessions"] = Json::object(sessions_map)
-  obj["dev_since_review"] = state.dev_since_review.to_json()
-  obj["accumulated_dev_outputs"] = state.accumulated_dev_outputs.to_json()
-  let json = Json::object(obj)
+fn save_session(state : @helpers.SessionState) -> Unit {
+  let json = @helpers.session_to_json(state)
   ignore(exec_sync("mkdir -p .tornado"))
-  write_file_sync(session_file, json.stringify())
+  write_file_sync(session_file, json)
 }
 
 ///|
 /// Load session state from disk
-fn load_session() -> SessionState? {
+fn load_session() -> @helpers.SessionState? {
   let content = read_file_sync(session_file)
   if content.has_prefix("ERROR:") {
     return None
   }
-  let json = @json.parse(content) catch { _ => return None }
-  match json {
-    Object(map) => {
-      let iteration = match map.get("iteration") {
-        Some(Number(n, ..)) => n.to_int()
-        _ => 0
-      }
-      let phase = match map.get("phase") {
-        Some(String(s)) => s
-        _ => "idle"
-      }
-      let task = match map.get("task") {
-        Some(String(s)) => s
-        _ => ""
-      }
-      let dev_output = match map.get("dev_output") {
-        Some(String(s)) => s
-        _ => ""
-      }
-      let review_summary = match map.get("review_summary") {
-        Some(String(s)) => s
-        _ => ""
-      }
-      let agent_sessions : Map[String, String] = {}
-      match map.get("agent_sessions") {
-        Some(Object(sessions)) =>
-          for entry in sessions {
-            match entry.1 {
-              String(sid) => agent_sessions[entry.0] = sid
-              _ => ()
-            }
-          }
-        _ => ()
-      }
-      let dev_since_review = match map.get("dev_since_review") {
-        Some(Number(n, ..)) => n.to_int()
-        _ => 0
-      }
-      let accumulated_dev_outputs : Array[String] = []
-      match map.get("accumulated_dev_outputs") {
-        Some(Array(arr)) =>
-          for item in arr {
-            match item {
-              String(s) => accumulated_dev_outputs.push(s)
-              _ => ()
-            }
-          }
-        _ => ()
-      }
-      Some({
-        iteration,
-        phase,
-        task,
-        dev_output,
-        review_summary,
-        agent_sessions,
-        dev_since_review,
-        accumulated_dev_outputs,
-      })
-    }
-    _ => None
-  }
+  @helpers.session_from_json(content)
 }
 
 ///|
@@ -516,57 +410,10 @@ fn build_initial_task_from_todos() -> String {
 // ── Plan file task builder ───────────────────────────────────
 
 ///|
-/// Derive archive path: "TODO.md" → "TODO.archive.md", "plan" → "plan.archive.md"
-fn derive_archive_path(plan_path : String) -> String {
-  if plan_path.has_suffix(".md") && plan_path.length() > 3 {
-    let buf = StringBuilder::new()
-    let mut i = 0
-    let stop = plan_path.length() - 3
-    for ch in plan_path {
-      if i >= stop {
-        break
-      }
-      buf.write_char(ch)
-      i += 1
-    }
-    buf.write_string(".archive.md")
-    buf.to_string()
-  } else {
-    plan_path + ".archive.md"
-  }
-}
-
-///|
 /// Build a task prompt that directs the agent to read/write the plan file
 fn build_plan_file_task(plan_path : String, review_summary : String) -> String {
   let context = gather_review_context()
-  let buf = StringBuilder::new()
-  buf.write_string("You are in an autonomous development loop.\n\n")
-  buf.write_string("## Plan File: \{plan_path}\n")
-  buf.write_string("Read this file to see your current task list.\n\n")
-  buf.write_string("## Instructions\n")
-  buf.write_string("1. Read `\{plan_path}` to understand the current tasks\n")
-  buf.write_string(
-    "2. Pick the highest-priority uncompleted task and implement it\n",
-  )
-  buf.write_string(
-    "3. After completing work, update `\{plan_path}` to mark the task as done\n",
-  )
-  // Derive archive path: foo.md → foo.archive.md, other → other.archive.md
-  let archive_path = derive_archive_path(plan_path)
-  buf.write_string(
-    "4. If the file has many completed items (10+), archive them to `\{archive_path}`\n\n",
-  )
-  if not(review_summary.is_empty()) {
-    buf.write_string("## Review Feedback\n")
-    buf.write_string(truncate(review_summary, 2000))
-    buf.write_string("\n\n")
-  }
-  if not(context.is_empty()) {
-    buf.write_string("## Current Project State\n")
-    buf.write_string(context)
-  }
-  buf.to_string()
+  @helpers.build_plan_file_task(plan_path, review_summary, context)
 }
 
 // ── Join accumulated dev outputs ─────────────────────────────
@@ -574,15 +421,7 @@ fn build_plan_file_task(plan_path : String, review_summary : String) -> String {
 ///|
 /// Combine multiple dev outputs into a structured summary
 fn join_dev_outputs(outputs : Array[String]) -> String {
-  let buf = StringBuilder::new()
-  let mut i = 0
-  for output in outputs {
-    i += 1
-    buf.write_string("### Dev Iteration \{i}\n")
-    buf.write_string(output)
-    buf.write_string("\n\n")
-  }
-  buf.to_string()
+  @helpers.join_dev_outputs(outputs)
 }
 
 // ── Improvement loop task builder (RLM) ─────────────────────
@@ -596,51 +435,9 @@ fn build_improvement_task(
   cycle_summary? : String = "",
 ) -> String {
   let context = gather_review_context()
-  let buf = StringBuilder::new()
-  buf.write_string("You are in an autonomous IMPROVEMENT loop.\n")
-  buf.write_string(
-    "Budget: iteration \{current_step}/\{total_steps} before next review.\n\n",
+  @helpers.build_improvement_task(
+    prev_output, current_step, total_steps, cycle_summary, context,
   )
-  if not(cycle_summary.is_empty()) {
-    buf.write_string("## Previous Cycle Summary\n")
-    buf.write_string(cycle_summary)
-    buf.write_string("\n\n")
-  }
-  if not(context.is_empty()) {
-    buf.write_string("## Current Project State\n")
-    buf.write_string(context)
-    buf.write_string("\n")
-  }
-  if not(prev_output.is_empty()) {
-    buf.write_string("## Previous Iteration Output\n")
-    buf.write_string(truncate(prev_output, 2000))
-    buf.write_string("\n\n")
-  }
-  buf.write_string("## Improvement Protocol\n")
-  buf.write_string(
-    "1. **Measure Baseline**: Run tests, record pass/fail counts, build status, coverage\n",
-  )
-  buf.write_string(
-    "2. **Make ONE Focused Improvement**: Choose exactly one of: fix / test / refactor / optimize\n",
-  )
-  buf.write_string(
-    "3. **Validate**: Re-run tests, compare with baseline. No regression + improvement = ACCEPTABLE\n",
-  )
-  buf.write_string(
-    "4. **Commit or Revert**: If acceptable, commit with descriptive message. Otherwise `git checkout .`\n",
-  )
-  buf.write_string(
-    "5. **Report**: Output a structured summary in this format:\n\n",
-  )
-  buf.write_string("```\n")
-  buf.write_string("IMPROVEMENT_REPORT:\n")
-  buf.write_string("  type: <fix|test|refactor|optimize>\n")
-  buf.write_string("  baseline: tests=N/N, build=ok|fail\n")
-  buf.write_string("  result: tests=N/N, build=ok|fail\n")
-  buf.write_string("  verdict: committed|reverted\n")
-  buf.write_string("  summary: <one-line description of what changed>\n")
-  buf.write_string("```\n")
-  buf.to_string()
 }
 
 // ── Cycle summary builder ────────────────────────────────────
@@ -652,21 +449,7 @@ fn build_cycle_summary(
   dev_outputs : Array[String],
   review_summary : String,
 ) -> String {
-  let buf = StringBuilder::new()
-  buf.write_string("## Cycle \{iteration} Summary\n\n")
-  let mut i = 0
-  for output in dev_outputs {
-    i += 1
-    buf.write_string("### Dev Step \{i}\n")
-    buf.write_string(truncate(output, 1000))
-    buf.write_string("\n\n")
-  }
-  if not(review_summary.is_empty()) {
-    buf.write_string("### Review\n")
-    buf.write_string(truncate(review_summary, 500))
-    buf.write_string("\n")
-  }
-  buf.to_string()
+  @helpers.build_cycle_summary(iteration, dev_outputs, review_summary)
 }
 
 // ── Next task router ─────────────────────────────────────────
@@ -897,7 +680,7 @@ fn run_repl(
         interrupt
     }
     // ── dev phase ──
-    save_session({
+    save_session(@helpers.SessionState::{
       iteration,
       phase: "dev",
       task: next_task,
@@ -952,7 +735,7 @@ fn run_repl(
     if dev_result.trim().is_empty() {
       log("HEARTBEAT", "Dev produced no output, skipping review")
       last_review_summary = "Dev agent produced no output - likely failed"
-      save_session({
+      save_session(@helpers.SessionState::{
         iteration,
         phase: "idle",
         task: next_task,
@@ -980,7 +763,7 @@ fn run_repl(
         "USAGE",
         "Total: \{total_input_tokens}in/\{total_output_tokens}out (cache: \{total_cache_read}r/\{total_cache_write}w), $\{total_cost_usd}",
       )
-      save_session({
+      save_session(@helpers.SessionState::{
         iteration,
         phase: "idle",
         task: next_task,
@@ -1015,7 +798,7 @@ fn run_repl(
     }
     // ── review phase ──
     let combined_dev_output = join_dev_outputs(accumulated_dev_outputs)
-    save_session({
+    save_session(@helpers.SessionState::{
       iteration,
       phase: "review",
       task: next_task,
@@ -1060,7 +843,7 @@ fn run_repl(
     match review_result {
       Approved(summary) => {
         last_review_summary = summary
-        save_session({
+        save_session(@helpers.SessionState::{
           iteration,
           phase: "idle",
           task: next_task,
@@ -1104,7 +887,7 @@ fn run_repl(
       }
       Rejected(reason) => {
         last_review_summary = reason
-        save_session({
+        save_session(@helpers.SessionState::{
           iteration,
           phase: "idle",
           task: next_task,
