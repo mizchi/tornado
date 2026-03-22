@@ -110,8 +110,10 @@ fn RalphLoop::run_milestone(
     }
   }
   // Execute waves
-  let completed_tasks =
-    milestone.tasks.iter().filter(fn(task) { task.status == Done }).count()
+  let completed_tasks = milestone.tasks
+    .iter()
+    .filter(fn(task) { task.status == Done })
+    .count()
   if completed_tasks > 0 {
     emit_info(
       self,

@@ -201,21 +201,26 @@ fn parse_sdk_event_json(
     Some(String(sid)) => if not(sid.is_empty()) { on_session_id(sid) }
     _ => ()
   }
+  // Extract _tornado_ts and wrap on_output to prefix timestamped events
+  let ts_on_output = match map.get("_tornado_ts") {
+    Some(String(ts)) => wrap_output_with_ts(on_output, ts)
+    _ => on_output
+  }
   match map.get("type") {
     Some(String(event_type)) =>
       match event_type {
-        "system" => parse_system_event(map, on_output)
-        "assistant" => parse_tool_calls(map, on_output)
+        "system" => parse_system_event(map, ts_on_output)
+        "assistant" => parse_tool_calls(map, ts_on_output)
         "stream_event" =>
           match map.get("event") {
             Some(Object(event)) =>
-              parse_sdk_stream_event(event, buf, line_buf, on_output)
+              parse_sdk_stream_event(event, buf, line_buf, ts_on_output)
             _ => ()
           }
-        "tool_result" => parse_tool_result(map, on_output)
-        "content_block_start" => parse_content_block_start(map, on_output)
+        "tool_result" => parse_tool_result(map, ts_on_output)
+        "content_block_start" => parse_content_block_start(map, ts_on_output)
         "result" => {
-          parse_sdk_result_event(map, on_output)
+          parse_sdk_result_event(map, ts_on_output)
           match map.get("is_error") {
             Some(True) => {
               match map.get("result") {
@@ -232,6 +237,23 @@ fn parse_sdk_event_json(
     _ => ()
   }
   false
+}
+
+///|
+/// Wrap on_output to prefix Info and OutputLine events with [TS:HH:MM:SS]
+fn wrap_output_with_ts(
+  on_output : (@types.AgentEvent) -> Unit,
+  ts : String,
+) -> (@types.AgentEvent) -> Unit {
+  fn(event) {
+    match event {
+      @types.AgentEvent::Info(msg) =>
+        on_output(@types.AgentEvent::Info("[TS:\{ts}] \{msg}"))
+      @types.AgentEvent::OutputLine(line) =>
+        on_output(@types.AgentEvent::OutputLine("[TS:\{ts}] \{line}"))
+      _ => on_output(event)
+    }
+  }
 }
 
 ///|

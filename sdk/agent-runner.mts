@@ -3,7 +3,7 @@ import type {
   AgentAdapter,
   RunnerOptions,
 } from "./agent-adapter.mjs";
-import { createLogger, writeJsonl } from "./runner-io.mjs";
+import { createLogger, stampEvent, writeJsonl } from "./runner-io.mjs";
 
 export async function runAdapter<RawEvent>(
   adapter: AgentAdapter<RawEvent>,
@@ -14,7 +14,7 @@ export async function runAdapter<RawEvent>(
   const started = await adapter.start(opts);
 
   for (const event of started.initEvents ?? []) {
-    sink.write(event);
+    sink.write(stampEvent(event));
   }
   for (const line of started.initLogs ?? []) {
     sink.log(line);
@@ -24,7 +24,7 @@ export async function runAdapter<RawEvent>(
     const emissions = adapter.emit(raw, started.sessionId);
     for (const emission of emissions) {
       if (emission.event !== undefined) {
-        sink.write(emission.event);
+        sink.write(stampEvent(emission.event));
       }
       if (emission.log) {
         sink.log(emission.log);

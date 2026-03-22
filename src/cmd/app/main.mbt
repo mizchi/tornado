@@ -261,9 +261,31 @@ fn load_config(config_path : String?) -> @config.ProjectConfig {
 }
 
 ///|
+/// Extract embedded [TS:HH:MM:SS] prefix from a message.
+/// Returns (timestamp, remaining_message). If no prefix found, uses now_timestamp().
+fn extract_event_ts(msg : String) -> (String, String) {
+  // Format: [TS:HH:MM:SS] rest...
+  if msg.has_prefix("[TS:") {
+    // Find the closing bracket
+    let mut end = 4
+    while end < msg.length() && msg[end] != ']'.to_int().to_uint16() {
+      end = end + 1
+    }
+    if end < msg.length() {
+      let ts = msg.unsafe_substring(start=4, end~)
+      // Skip "] " after the bracket
+      let rest_start = if end + 2 <= msg.length() { end + 2 } else { end + 1 }
+      let rest = msg.unsafe_substring(start=rest_start, end=msg.length())
+      return (ts, rest)
+    }
+  }
+  (now_timestamp(), msg)
+}
+
+///|
 /// Timestamped log with ANSI color coding by level
 fn log(level : String, msg : String) -> Unit {
-  let ts = now_timestamp()
+  let (ts, actual_msg) = extract_event_ts(msg)
   let color = match level {
     "CALL" => "\u001b[90m"
     "DONE" => "\u001b[36m"
@@ -273,13 +295,13 @@ fn log(level : String, msg : String) -> Unit {
     _ => ""
   }
   if color.is_empty() {
-    println("[\{ts}] [\{level}] \{msg}")
+    println("[\{ts}] [\{level}] \{actual_msg}")
   } else {
-    println("\{color}[\{ts}] [\{level}] \{msg}\u001b[0m")
+    println("\{color}[\{ts}] [\{level}] \{actual_msg}\u001b[0m")
   }
   let log_file = get_log_file()
   if not(log_file.is_empty()) {
-    append_file_sync(log_file, "[\{ts}] [\{level}] \{msg}\n")
+    append_file_sync(log_file, "[\{ts}] [\{level}] \{actual_msg}\n")
   }
 }
 

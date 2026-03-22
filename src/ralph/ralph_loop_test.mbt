@@ -124,7 +124,9 @@ test "planner receives system prompt with brief and completed milestone summarie
     ),
   )
   assert_true(
-    system_prompt.contains("Do NOT write to or modify files under .claude/plans/"),
+    system_prompt.contains(
+      "Do NOT write to or modify files under .claude/plans/",
+    ),
   )
   assert_true(
     system_prompt.contains(
@@ -269,7 +271,9 @@ test "RalphLoop logs resume progress for partially completed milestone" {
   let rl = @ralph.RalphLoop::new(config, mgr, backends, callbacks)
   rl.run()
   assert_true(
-    infos.iter().any(fn(msg) {
+    infos
+    .iter()
+    .any(fn(msg) {
       msg.contains("Resuming milestone m1: 2 of 3 tasks already done")
     }),
   )
@@ -311,8 +315,14 @@ test "run_wave skips already-done tasks before submitting to builder" {
   let history = builder_mock.get_history()
   assert_true(history.length() == 1)
   inspect(history[0].0, content="Write handlers")
-  inspect(mgr.milestones[0].tasks[0].result.unwrap(), content="already finished")
-  inspect(mgr.milestones[0].tasks[1].result.unwrap(), content="already finished")
+  inspect(
+    mgr.milestones[0].tasks[0].result.unwrap(),
+    content="already finished",
+  )
+  inspect(
+    mgr.milestones[0].tasks[1].result.unwrap(),
+    content="already finished",
+  )
   inspect(mgr.milestones[0].tasks[2].result.unwrap(), content="fresh result")
   assert_true(
     infos
@@ -400,7 +410,10 @@ test "resume skips already-done milestones" {
   let history = builder_mock.get_history()
   assert_true(history.length() == 1)
   inspect(history[0].0, content="Write handlers")
-  inspect(mgr.milestones[0].tasks[0].result.unwrap(), content="already finished")
+  inspect(
+    mgr.milestones[0].tasks[0].result.unwrap(),
+    content="already finished",
+  )
   inspect(mgr.milestones[1].tasks[0].result.unwrap(), content="fresh result")
   assert_true(
     not(infos.iter().any(fn(msg) { msg.contains("Planning milestone: m1") })),
@@ -409,14 +422,14 @@ test "resume skips already-done milestones" {
     not(infos.iter().any(fn(msg) { msg.contains("Executing wave 0 of m1") })),
   )
   assert_true(
-    not(infos.iter().any(fn(msg) {
-      msg.contains("Resuming milestone m1:")
-    })),
+    not(infos.iter().any(fn(msg) { msg.contains("Resuming milestone m1:") })),
   )
   assert_true(
     not(infos.iter().any(fn(msg) { msg.contains("Running task m1-t1") })),
   )
-  assert_true(infos.iter().any(fn(msg) { msg.contains("Executing wave 0 of m2") }))
+  assert_true(
+    infos.iter().any(fn(msg) { msg.contains("Executing wave 0 of m2") }),
+  )
 }
 
 ///|

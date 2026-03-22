@@ -644,3 +644,70 @@ test "parse_sdk_event_line accumulates Codex text_delta in buf" {
   )
   inspect(buf.to_string(), content="Codex result content")
 }
+
+// ── tornado-5r4: timestamp propagation from _tornado_ts ──
+
+///|
+test "tornado-5r4: _tornado_ts propagated into Info events" {
+  let buf = StringBuilder::new()
+  let lb = @agent.OutputLineBuffer::new()
+  let err_buf = StringBuilder::new()
+  let ec = EventCollector::new()
+  let line =
+    #|{"type":"system","subtype":"init","model":"claude-test","tools":[],"_tornado_ts":"14:30:45"}
+  let _has_error = @agent.parse_sdk_event_line(
+    line,
+    buf,
+    lb,
+    err_buf,
+    ec.handler(),
+    fn(_sid) {  },
+  )
+  assert_true(ec.infos.length() == 1)
+  assert_true(ec.infos[0].has_prefix("[TS:14:30:45] "))
+}
+
+///|
+test "tornado-5r4: _tornado_ts propagated into OutputLine events" {
+  let buf = StringBuilder::new()
+  let lb = @agent.OutputLineBuffer::new()
+  let err_buf = StringBuilder::new()
+  let lines : Array[String] = []
+  let line =
+    #|{"type":"stream_event","_tornado_ts":"09:15:30","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"hello world\n"}}}
+  let _has_error = @agent.parse_sdk_event_line(
+    line,
+    buf,
+    lb,
+    err_buf,
+    fn(event) {
+      match event {
+        @types.AgentEvent::OutputLine(s) => lines.push(s)
+        _ => ()
+      }
+    },
+    fn(_sid) {  },
+  )
+  assert_true(lines.length() == 1)
+  assert_true(lines[0].has_prefix("[TS:09:15:30] "))
+}
+
+///|
+test "tornado-5r4: backward compat without _tornado_ts" {
+  let buf = StringBuilder::new()
+  let lb = @agent.OutputLineBuffer::new()
+  let err_buf = StringBuilder::new()
+  let ec = EventCollector::new()
+  let line =
+    #|{"type":"system","subtype":"init","model":"claude-test","tools":[]}
+  let _has_error = @agent.parse_sdk_event_line(
+    line,
+    buf,
+    lb,
+    err_buf,
+    ec.handler(),
+    fn(_sid) {  },
+  )
+  assert_true(ec.infos.length() == 1)
+  assert_true(not(ec.infos[0].has_prefix("[TS:")))
+}
