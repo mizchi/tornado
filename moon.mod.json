@@ -3,7 +3,7 @@
   "version": "0.5.0",
   "deps": {
     "mizchi/llm": "0.2.2",
-    "mizchi/x": "0.1.3",
+    "mizchi/x": "0.2.0",
     "mizchi/tui": "0.7.0"
   },
   "source": "src",
