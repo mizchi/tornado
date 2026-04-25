@@ -36,7 +36,7 @@ pub fn render_tabs(
   } else {
     " orchestrator "
   }
-  if not(tabs.is_empty()) {
+  if !(tabs.is_empty()) {
     tabs.push(@vnode.text(" | ", fg="rgb(100,100,100)"))
   }
   tabs.push(@vnode.text(orchestrator_label, fg=orchestrator_fg))

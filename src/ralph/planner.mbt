@@ -36,7 +36,7 @@ pub fn PlannerAgent::build_plan_prompt(
   prompt.write_string("\nGoal: ")
   prompt.write_string(milestone.goal)
   prompt.write_string("\n\n")
-  if not(project_context.is_empty()) {
+  if !(project_context.is_empty()) {
     prompt.write_string("## Project Context\n")
     prompt.write_string(project_context)
     prompt.write_string("\n\n")
@@ -81,7 +81,7 @@ pub fn PlannerAgent::build_milestone_design_prompt(
   )
   prompt.write_string(lang_instruction)
   prompt.write_string("\n\n")
-  if not(project_context.is_empty()) {
+  if !(project_context.is_empty()) {
     prompt.write_string("## Project Context\n")
     prompt.write_string(project_context)
     prompt.write_string("\n\n")

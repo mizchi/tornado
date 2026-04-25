@@ -551,5 +551,5 @@ test "parse_sdk_result_event omits zero tokens" {
     #|{"type": "result", "usage": {"input_tokens": 0, "output_tokens": 0}}
   let map = json_map(s)
   @agent.parse_sdk_result_event(map, ec.handler())
-  assert_true(not(ec.infos[0].contains("tokens=")))
+  assert_true(!(ec.infos[0].contains("tokens=")))
 }

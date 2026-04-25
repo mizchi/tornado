@@ -327,7 +327,7 @@ test "ReviewAgent::build_prompt ja includes Japanese text" {
   assert_true(
     prompt.contains("TODO リストとして書き出すことです"),
   )
-  assert_true(not(prompt.contains("Review the following")))
+  assert_true(!(prompt.contains("Review the following")))
 }
 
 ///|
@@ -342,7 +342,7 @@ test "ReviewAgent::build_prompt en includes English text" {
   assert_true(prompt.contains("Review the following development work"))
   assert_true(prompt.contains("Review Focus: Performance"))
   assert_true(prompt.contains("do NOT attempt to fix"))
-  assert_true(not(prompt.contains("以下の開発作業")))
+  assert_true(!(prompt.contains("以下の開発作業")))
 }
 
 ///|

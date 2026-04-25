@@ -40,7 +40,7 @@ pub fn VerifierAgent::build_verify_prompt(
   buf.write_string("\nWave: ")
   buf.write_string(wave.to_string())
   buf.write_string("\n\n")
-  if not(project_context.is_empty()) {
+  if !(project_context.is_empty()) {
     buf.write_string("## Project Context\n")
     buf.write_string(project_context)
     buf.write_string("\n\n")
@@ -74,12 +74,12 @@ pub fn VerifierAgent::parse_verdict(
 ) -> @types.VerifierVerdict {
   // Check for <milestone_failed>
   let failed_content = extract_tag(output, "milestone_failed")
-  if not(failed_content.is_empty()) {
+  if !(failed_content.is_empty()) {
     return MilestoneFailed(failed_content)
   }
   // Check for <needs_rework>
   let rework_content = extract_tag(output, "needs_rework")
-  if not(rework_content.is_empty()) {
+  if !(rework_content.is_empty()) {
     let items = split_rework_items(rework_content)
     return NeedsRework(items)
   }
@@ -144,7 +144,7 @@ fn split_rework_items(s : String) -> Array[String] {
   let lines = split_lines(s)
   for line in lines {
     let trimmed = trim(line)
-    if not(trimmed.is_empty()) {
+    if !(trimmed.is_empty()) {
       items.push(trimmed)
     }
   }

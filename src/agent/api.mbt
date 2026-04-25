@@ -35,7 +35,7 @@ pub fn ApiBackend::from_provider(provider : @llm.BoxedProvider) -> ApiBackend {
 impl AgentBackend for ApiBackend with run(self, task, system_prompt, on_output) {
   on_output(@types.AgentEvent::StatusChange(@types.AgentStatus::Running))
   let messages : Array[@llm.Message] = []
-  if not(system_prompt.is_empty()) {
+  if !(system_prompt.is_empty()) {
     messages.push({
       role: System,
       content: [@llm.ContentBlock::Text(system_prompt)],

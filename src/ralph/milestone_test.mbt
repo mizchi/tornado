@@ -118,7 +118,7 @@ test "has_undone_tasks returns false when all done" {
     #|  ]
     #|}
   let mgr = @ralph.MilestoneManager::load_from_json(json)
-  assert_true(not(mgr.has_undone_tasks(mgr.milestones[0])))
+  assert_true(!(mgr.has_undone_tasks(mgr.milestones[0])))
 }
 
 ///|
@@ -195,7 +195,7 @@ test "all_milestones_done with mixed statuses" {
     #|  ]
     #|}
   let mgr = @ralph.MilestoneManager::load_from_json(json)
-  assert_true(not(mgr.all_milestones_done()))
+  assert_true(!(mgr.all_milestones_done()))
 }
 
 ///|

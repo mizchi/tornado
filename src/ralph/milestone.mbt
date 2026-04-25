@@ -162,7 +162,7 @@ pub fn MilestoneManager::parse_milestone_design(
         let rest_chars = rest.to_array()
         let id = trim(String::from_array(rest_chars[:colon_idx]))
         let goal = trim(String::from_array(rest_chars[colon_idx + 1:]))
-        if not(id.is_empty()) && not(goal.is_empty()) {
+        if !(id.is_empty()) && !(goal.is_empty()) {
           milestones.push({
             id,
             goal,
@@ -485,7 +485,7 @@ fn split_lines(s : String) -> Array[String] {
     }
   }
   let remaining = buf.to_string()
-  if not(remaining.is_empty()) {
+  if !(remaining.is_empty()) {
     lines.push(remaining)
   }
   lines

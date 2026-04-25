@@ -11,8 +11,8 @@ test "Task::assign sets InProgress" {
   let t = @types.Task::new("t1", "do something")
   t.assign("agent-1")
   inspect(t.status, content="InProgress(\"agent-1\")")
-  assert_true(not(t.is_pending()))
-  assert_true(not(t.is_done()))
+  assert_true(!(t.is_pending()))
+  assert_true(!(t.is_done()))
 }
 
 ///|

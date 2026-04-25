@@ -98,7 +98,7 @@ pub fn TaskManager::parse_tasks(
     }
     // Strip leading numbering like "1. " or "- "
     let desc = strip_prefix(trimmed)
-    if not(desc.is_empty()) {
+    if !(desc.is_empty()) {
       result.push(self.add_task(desc, parent_id~))
     }
   }

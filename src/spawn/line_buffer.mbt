@@ -58,7 +58,7 @@ pub fn LineBuffer::push(
 /// Flush remaining buffered content as a final line.
 pub fn LineBuffer::flush(self : LineBuffer, on_line : (String) -> Unit) -> Unit {
   let remaining = self.buf.to_string()
-  if not(remaining.is_empty()) {
+  if !(remaining.is_empty()) {
     let stripped = if remaining.has_suffix("\r") {
       remaining.unsafe_substring(start=0, end=remaining.length() - 1)
     } else {

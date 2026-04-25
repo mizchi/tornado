@@ -57,20 +57,20 @@ fn SubprocessBackend::run_claude_code(
   // Build SDK options as JSON
   let opts : Map[String, Json] = {}
   opts["prompt"] = task.to_json()
-  if not(system_prompt.is_empty()) {
+  if !(system_prompt.is_empty()) {
     opts["systemPrompt"] = system_prompt.to_json()
   }
-  if not(self.model.is_empty()) {
+  if !(self.model.is_empty()) {
     opts["model"] = self.model.to_json()
   }
-  if not(self.session_id.is_empty()) {
+  if !(self.session_id.is_empty()) {
     opts["sessionId"] = self.session_id.to_json()
   }
   let opts_json = Json::object(opts).stringify()
   on_output(
     @types.AgentEvent::Info(
       "Launching: Claude" +
-      (if not(self.session_id.is_empty()) {
+      (if !(self.session_id.is_empty()) {
         " (resume: \{self.session_id})"
       } else {
         " (new session)"
@@ -133,7 +133,7 @@ fn SubprocessBackend::parse_sdk_event(
       // Extract session_id from any message
       match map.get("session_id") {
         Some(String(sid)) =>
-          if not(sid.is_empty()) && self.session_id != sid {
+          if !(sid.is_empty()) && self.session_id != sid {
             self.session_id = sid
             on_output(@types.AgentEvent::SessionId(sid))
           }
@@ -321,17 +321,17 @@ fn SubprocessBackend::run_codex(
 ) -> @types.AgentResult {
   let opts : Map[String, Json] = {}
   opts["prompt"] = task.to_json()
-  if not(self.model.is_empty()) {
+  if !(self.model.is_empty()) {
     opts["model"] = self.model.to_json()
   }
-  if not(self.session_id.is_empty()) {
+  if !(self.session_id.is_empty()) {
     opts["threadId"] = self.session_id.to_json()
   }
   let opts_json = Json::object(opts).stringify()
   on_output(
     @types.AgentEvent::Info(
       "Launching: Codex" +
-      (if not(self.session_id.is_empty()) {
+      (if !(self.session_id.is_empty()) {
         " (resume: \{self.session_id})"
       } else {
         " (new session)"

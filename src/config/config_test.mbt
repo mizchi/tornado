@@ -249,7 +249,7 @@ test "ralph_enabled defaults to false" {
     #|  ]
     #|}
   let config = @config.ProjectConfig::from_json_string(json)
-  assert_true(not(config.ralph_enabled))
+  assert_true(!(config.ralph_enabled))
   inspect(config.milestones_path, content="None")
   inspect(config.max_rework_attempts, content="3")
 }

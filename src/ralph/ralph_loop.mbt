@@ -58,7 +58,7 @@ pub fn RalphLoop::run(self : RalphLoop) -> Unit {
       }
       Some(m) => {
         let success = self.run_milestone(m)
-        if not(success) {
+        if !(success) {
           emit_info(self, "Milestone \{m.id} failed")
         }
       }
@@ -113,7 +113,7 @@ fn RalphLoop::run_milestone(
       None => break
       Some(wave_num) => {
         let success = self.run_wave(milestone, wave_num)
-        if not(success) {
+        if !(success) {
           milestone.status = Failed("Wave \{wave_num} failed")
           return false
         }

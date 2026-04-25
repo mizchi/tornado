@@ -107,14 +107,14 @@ fn parse_agent_config(
 ) -> @types.AgentConfig {
   let id = get_string(json, "id", "")
   let kind_str = get_string(json, "kind", "mock")
-  if not(valid_agent_kinds.contains(kind_str)) {
+  if !(valid_agent_kinds.contains(kind_str)) {
     warnings.push(
       "Agent '\{id}': unknown kind '\{kind_str}', defaulting to Mock",
     )
   }
   let kind = parse_agent_kind(kind_str)
   let role_str = get_string(json, "role", "dev")
-  if not(valid_agent_roles.contains(role_str)) {
+  if !(valid_agent_roles.contains(role_str)) {
     warnings.push(
       "Agent '\{id}': unknown role '\{role_str}', defaulting to Dev",
     )
@@ -294,13 +294,13 @@ pub fn ProjectConfig::validate(self : ProjectConfig) -> Array[String] {
   }
   // Check for at least one dev agent
   let has_dev = self.agents.iter().any(fn(a) { a.role == Dev })
-  if not(has_dev) && not(self.agents.is_empty()) {
+  if !(has_dev) && !(self.agents.is_empty()) {
     errors.push("No dev agent configured")
   }
   // Ralph-specific validation
   if self.ralph_enabled {
     let has_planner = self.agents.iter().any(fn(a) { a.role == Planner })
-    if not(has_planner) {
+    if !(has_planner) {
       errors.push("Ralph mode requires a planner agent")
     }
   }

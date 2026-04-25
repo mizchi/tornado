@@ -45,7 +45,7 @@ pub fn ReviewAgent::build_prompt(
     buf.write_string("Review the following development work.\n\n")
   }
   // Context section (git log, diff, etc.)
-  if not(context.is_empty()) {
+  if !(context.is_empty()) {
     if self.lang == "ja" {
       buf.write_string("## 直近のコンテキスト\n")
     } else {
@@ -196,13 +196,13 @@ pub fn ReviewAgent::parse_verdict(
       let items : Array[String] = []
       for part in content.split(",") {
         let trimmed = part.to_string().trim().to_string()
-        if not(trimmed.is_empty()) {
+        if !(trimmed.is_empty()) {
           items.push(trimmed)
         }
       }
       // Only return NeedsChanges if there are actual feedback items;
       // empty <needs_changes></needs_changes> falls through to Approved
-      if not(items.is_empty()) {
+      if !(items.is_empty()) {
         return @types.ReviewVerdict::NeedsChanges(items)
       }
     }

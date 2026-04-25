@@ -157,7 +157,7 @@ fn run_ralph(
   let config : @config.ProjectConfig = { ..config, ralph_enabled: true }
   // Validate config
   let errors = config.validate()
-  if not(errors.is_empty()) {
+  if !(errors.is_empty()) {
     for e in errors {
       log("ERROR", e)
     }
@@ -285,7 +285,7 @@ fn run_ralph(
 ///|
 fn is_existing_file(path : String) -> Bool {
   let content = read_file_sync(path)
-  not(content.has_prefix("ERROR:"))
+  !(content.has_prefix("ERROR:"))
 }
 
 ///|
@@ -538,20 +538,20 @@ fn build_initial_task_from_todos() -> String {
   let mut found = false
   for file in todo_files {
     let content = read_file_sync(file)
-    if not(content.has_prefix("ERROR:")) && not(content.is_empty()) {
+    if !(content.has_prefix("ERROR:")) && !(content.is_empty()) {
       found = true
       buf.write_string("## \{file}\n```\n")
       buf.write_string(truncate(content, 3000))
       buf.write_string("\n```\n\n")
     }
   }
-  if not(found) {
+  if !(found) {
     buf.write_string(
       "(No TODO files found. Look at the project structure, README, and recent git history instead.)\n\n",
     )
   }
   let context = gather_review_context()
-  if not(context.is_empty()) {
+  if !(context.is_empty()) {
     buf.write_string("## Current Project State\n")
     buf.write_string(context)
   }
@@ -609,12 +609,12 @@ fn build_plan_file_task(plan_path : String, review_summary : String) -> String {
   buf.write_string(
     "4. If the file has many completed items (10+), archive them to `\{archive_path}`\n\n",
   )
-  if not(review_summary.is_empty()) {
+  if !(review_summary.is_empty()) {
     buf.write_string("## Review Feedback\n")
     buf.write_string(truncate(review_summary, 2000))
     buf.write_string("\n\n")
   }
-  if not(context.is_empty()) {
+  if !(context.is_empty()) {
     buf.write_string("## Current Project State\n")
     buf.write_string(context)
   }
@@ -653,17 +653,17 @@ fn build_improvement_task(
   buf.write_string(
     "Budget: iteration \{current_step}/\{total_steps} before next review.\n\n",
   )
-  if not(cycle_summary.is_empty()) {
+  if !(cycle_summary.is_empty()) {
     buf.write_string("## Previous Cycle Summary\n")
     buf.write_string(cycle_summary)
     buf.write_string("\n\n")
   }
-  if not(context.is_empty()) {
+  if !(context.is_empty()) {
     buf.write_string("## Current Project State\n")
     buf.write_string(context)
     buf.write_string("\n")
   }
-  if not(prev_output.is_empty()) {
+  if !(prev_output.is_empty()) {
     buf.write_string("## Previous Iteration Output\n")
     buf.write_string(truncate(prev_output, 2000))
     buf.write_string("\n\n")
@@ -713,7 +713,7 @@ fn build_cycle_summary(
     buf.write_string(truncate(output, 1000))
     buf.write_string("\n\n")
   }
-  if not(review_summary.is_empty()) {
+  if !(review_summary.is_empty()) {
     buf.write_string("### Review\n")
     buf.write_string(truncate(review_summary, 500))
     buf.write_string("\n")
@@ -770,7 +770,7 @@ fn build_continuation_task(
   buf.write_string(
     "You are in an autonomous development loop. Your job is to continuously improve this project.\n\n",
   )
-  if not(context.is_empty()) {
+  if !(context.is_empty()) {
     buf.write_string("## Current Project State\n")
     buf.write_string(context)
     buf.write_string("\n")
@@ -778,7 +778,7 @@ fn build_continuation_task(
   buf.write_string("## Previous Task (completed)\n")
   buf.write_string(prev_task)
   buf.write_string("\n\n")
-  if not(review_summary.is_empty()) {
+  if !(review_summary.is_empty()) {
     buf.write_string("## Review Feedback\n")
     buf.write_string(truncate(review_summary, 2000))
     buf.write_string("\n\n")
@@ -942,7 +942,7 @@ fn run_repl(
     log("HEARTBEAT", "Task: \{truncate(next_task, 120)}")
     // ── Check for user interrupt before dev ──
     let interrupt = check_interrupt()
-    if not(interrupt.is_empty()) {
+    if !(interrupt.is_empty()) {
       log("USER", "Applying user instructions: \{truncate(interrupt, 100)}")
       next_task = next_task +
         "\n\n## Additional Instructions from User\n" +
@@ -994,7 +994,7 @@ fn run_repl(
     accumulated_dev_outputs.push(truncate(dev_result, 5000))
     // ── Check for user interrupt after dev ──
     let post_dev_interrupt = check_interrupt()
-    if not(post_dev_interrupt.is_empty()) {
+    if !(post_dev_interrupt.is_empty()) {
       log(
         "USER",
         "User instructions for review: \{truncate(post_dev_interrupt, 100)}",
@@ -1044,7 +1044,7 @@ fn run_repl(
       })
       // Build next task without review feedback
       let user_input = check_interrupt()
-      if not(user_input.is_empty()) {
+      if !(user_input.is_empty()) {
         log("USER", "Using user instructions: \{truncate(user_input, 100)}")
         next_task = user_input
       } else {
@@ -1058,7 +1058,7 @@ fn run_repl(
           cycle_summary=last_cycle_summary,
         )
       }
-      if not(post_dev_interrupt.is_empty()) {
+      if !(post_dev_interrupt.is_empty()) {
         next_task = next_task +
           "\n\n## Additional Instructions from User\n" +
           post_dev_interrupt
@@ -1133,7 +1133,7 @@ fn run_repl(
         )
         // Check for user interrupt → use as next task
         let user_input = check_interrupt()
-        if not(user_input.is_empty()) {
+        if !(user_input.is_empty()) {
           log("USER", "Using user instructions: \{truncate(user_input, 100)}")
           next_task = user_input
         } else {
@@ -1148,7 +1148,7 @@ fn run_repl(
           )
         }
         // Also apply any post-dev interrupt that wasn't consumed
-        if not(post_dev_interrupt.is_empty()) {
+        if !(post_dev_interrupt.is_empty()) {
           next_task = next_task +
             "\n\n## Additional Instructions from User\n" +
             post_dev_interrupt
@@ -1177,7 +1177,7 @@ fn run_repl(
         )
         // Check for queued user input first
         let queued = check_interrupt()
-        if not(queued.is_empty()) {
+        if !(queued.is_empty()) {
           log("USER", "Using queued instructions: \{truncate(queued, 100)}")
           next_task = queued
         } else {
@@ -1318,19 +1318,19 @@ fn run_dev(
 fn gather_review_context() -> String {
   let buf = StringBuilder::new()
   let git_log = exec_sync("git log --oneline -10 2>/dev/null")
-  if not(git_log.is_empty()) {
+  if !(git_log.is_empty()) {
     buf.write_string("### Recent Commits\n```\n")
     buf.write_string(git_log)
     buf.write_string("\n```\n\n")
   }
   let git_diff_stat = exec_sync("git diff --stat HEAD 2>/dev/null")
-  if not(git_diff_stat.is_empty()) {
+  if !(git_diff_stat.is_empty()) {
     buf.write_string("### Uncommitted Changes\n```\n")
     buf.write_string(git_diff_stat)
     buf.write_string("\n```\n\n")
   }
   let git_staged = exec_sync("git diff --cached --stat 2>/dev/null")
-  if not(git_staged.is_empty()) {
+  if !(git_staged.is_empty()) {
     buf.write_string("### Staged Changes\n```\n")
     buf.write_string(git_staged)
     buf.write_string("\n```\n\n")

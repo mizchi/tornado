@@ -68,7 +68,7 @@ test "PlannerAgent::build_milestone_design_prompt lang=ja" {
 test "PlannerAgent::build_milestone_design_prompt empty context" {
   let planner = @ralph.PlannerAgent::new()
   let prompt = planner.build_milestone_design_prompt("")
-  assert_true(not(prompt.contains("## Project Context")))
+  assert_true(!(prompt.contains("## Project Context")))
   assert_true(prompt.contains("MILESTONE"))
 }
 

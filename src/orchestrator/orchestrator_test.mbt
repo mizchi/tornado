@@ -107,7 +107,7 @@ test "Orchestrator without review agent" {
   let session = @types.Session::new("s1", "Do something", config.agents)
   orch.run(session)
   inspect(session.status, content="Completed")
-  assert_true(not(phases.iter().any(fn(p) { p == "Reviewing" })))
+  assert_true(!(phases.iter().any(fn(p) { p == "Reviewing" })))
 }
 
 ///|
